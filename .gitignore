@@ -31,6 +31,7 @@ yarn-error.log*
 next-env.d.ts
 
 # prisma
+/prisma/dev.db
 /prisma/migrations/dev.db*
 
 # uploaded images (保留目录但忽略内容)

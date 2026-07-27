@@ -272,6 +272,35 @@ const dailySummary = useMemo(() => {
 
 **注意**：日历数字 28 是对的；列表只是按 20 条一页展示，下方应有「加载更多」按钮可查看剩余 8 条。
 
+## 17. 项目备份与恢复方案（代码 + 数据分离）
+
+**场景**：用户每天写 10 条笔记、10 多张图片，一年数据量很大，不能把数据库和图片都塞进 GitHub 仓库。
+
+**数据位置**：
+- 代码、组件、配置 → GitHub 仓库
+- 笔记内容、分类、评论、点赞等结构化数据 → `prisma/dev.db`（SQLite）
+- 图片、附件 → `public/uploads/YYYY/MM/`
+
+**备份策略（方案 B：代码与数据分离）**：
+1. `.gitignore` 中忽略数据文件：
+   ```gitignore
+   /prisma/dev.db
+   /public/uploads/*
+   !/public/uploads/.gitkeep
+   ```
+2. 代码用 Git 提交到 GitHub。
+3. `prisma/dev.db` 和图片目录 `public/uploads/` 单独备份到网盘/移动硬盘。
+
+**恢复步骤（换电脑或重装系统后）**：
+1. 从 GitHub 克隆/拉取代码；
+2. 安装依赖：`npm install`；
+3. 运行 `npx prisma generate` 生成 Prisma 客户端；
+4. 从网盘下载 `dev.db` 放到 `prisma/dev.db`；
+5. 从网盘下载 `public/uploads/` 里的所有图片，按原目录结构放回；
+6. 启动服务：`npm run dev`。
+
+**注意**：`dev.db` 只存图片路径，不存图片文件本身，所以必须同时备份 `public/uploads/` 目录，否则笔记里图片会显示不出来。
+
 ## 常用验证路径
 
 - 首页列表：http://localhost:3300
