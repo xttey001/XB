@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #FFFFFF;
+  --bg-soft: #FAFAF9;
+  --border: #E5E5E2;
+  --text: #1F2937;
+  --text-soft: #6B7280;
+  --accent: #0EA5E9;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-feature-settings: "ss01", "cv01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: var(--font-plex), system-ui, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+}
+
+/* 自定义滚动条：极简风 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+/* 笔记正文与编辑器共用样式 */
+.note-md, .ProseMirror {
+  @apply text-[15px] leading-[1.7] text-ink-800;
+}
+.note-md h1, .ProseMirror h1 { @apply text-2xl font-serif font-semibold mt-4 mb-2; }
+.note-md h2, .ProseMirror h2 { @apply text-xl font-serif font-semibold mt-4 mb-2; }
+.note-md h3, .ProseMirror h3 { @apply text-lg font-semibold mt-3 mb-1; }
+.note-md p, .ProseMirror p { @apply my-2; }
+.note-md ul:not([data-type="taskList"]), .ProseMirror ul:not([data-type="taskList"]) { @apply list-disc pl-5 my-2; }
+.note-md ol, .ProseMirror ol { @apply list-decimal pl-5 my-2; }
+.note-md li, .ProseMirror li { @apply my-1; }
+.note-md code, .ProseMirror code {
+  @apply bg-ink-100 px-1.5 py-0.5 rounded text-[0.85em] font-mono text-accent-700;
+}
+.note-md pre, .ProseMirror pre {
+  @apply bg-ink-900 text-ink-50 p-3 rounded-md overflow-x-auto my-3 text-sm;
+}
+.note-md pre code, .ProseMirror pre code {
+  @apply bg-transparent text-inherit p-0;
+}
+.note-md blockquote, .ProseMirror blockquote {
+  @apply border-l-2 border-accent-500 pl-3 text-ink-600 italic my-2;
+}
+.note-md a, .ProseMirror a {
+  @apply text-accent-600 hover:underline underline-offset-2;
+}
+.note-md hr, .ProseMirror hr { @apply my-4 border-ink-200; }
+.note-md img, .ProseMirror img { @apply rounded-md max-w-full my-2; }
+.note-md mark, .ProseMirror mark { @apply rounded px-0.5; }
+.note-md strong, .note-md b,
+.ProseMirror strong, .ProseMirror b { @apply font-semibold; }
+
+/* 文本对齐 */
+.note-md [style*="text-align: center"],
+.ProseMirror [style*="text-align: center"] { text-align: center; }
+
+/* 高亮块 Callout */
+.note-md .callout,
+.ProseMirror .callout {
+  @apply flex gap-3 p-3 rounded-lg border my-3;
+}
+.note-md .callout-emoji,
+.ProseMirror .callout-emoji {
+  @apply flex-shrink-0 select-none text-lg leading-none pt-0.5;
+}
+.note-md .callout-content,
+.ProseMirror .callout-content {
+  @apply flex-1 min-w-0;
+}
+.note-md .callout-content > p,
+.ProseMirror .callout-content > p {
+  @apply my-1 first:mt-0 last:mb-0;
+}
+
+/* 任务列表 */
+.note-md ul[data-type="taskList"],
+.ProseMirror ul[data-type="taskList"] {
+  @apply list-none pl-0;
+}
+.note-md ul[data-type="taskList"] > li,
+.ProseMirror ul[data-type="taskList"] > li {
+  @apply flex items-start gap-2 my-1;
+}
+.note-md ul[data-type="taskList"] > li > label,
+.ProseMirror ul[data-type="taskList"] > li > label {
+  @apply flex-shrink-0 mt-1;
+}
+.note-md ul[data-type="taskList"] > li > div,
+.ProseMirror ul[data-type="taskList"] > li > div {
+  @apply flex-1 min-w-0;
+}
+.note-md ul[data-type="taskList"] input[type="checkbox"],
+.ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  @apply w-4 h-4 rounded border-ink-300 text-accent-600 cursor-pointer;
+}
+
+/* Tiptap 编辑器空状态占位符 */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply float-left text-ink-400 pointer-events-none h-0;
+}
+.ProseMirror p { @apply my-0; }
+.ProseMirror hr { @apply my-4 border-ink-200; }
+
+/* 输入框聚焦时不显示默认轮廓，使用自定义细线 */
+textarea:focus, input:focus {
+  outline: none;
+}
+
+/* 列表卡片中长内容的折叠样式 */
+.note-md-collapsed {
+  max-height: 16em;
+  overflow: hidden;
+  position: relative;
+}
+.note-md-collapsed::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3em;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.9) 80%
+  );
+  pointer-events: none;
+}

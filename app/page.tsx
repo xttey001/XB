@@ -1,0 +1,454 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  PenLine,
+  Loader2,
+  Inbox,
+  Upload,
+  Pin,
+} from 'lucide-react';
+import { format, getYear, getMonth } from 'date-fns';
+import { api, type SortBy, type Scope } from '@/lib/api';
+import type { NoteDTO, CategoryDTO, DailyStatsDTO } from '@/lib/types';
+import NoteEditor from '@/components/NoteEditor';
+import NoteCard from '@/components/NoteCard';
+import CategorySidebar from '@/components/CategorySidebar';
+import SearchBar from '@/components/SearchBar';
+import SortToggle from '@/components/SortToggle';
+import ObsidianImportDialog from '@/components/ObsidianImportDialog';
+import CalendarFilter, { type DateSelection } from '@/components/CalendarFilter';
+
+type Filter =
+  | { type: 'all' }
+  | { type: 'favorite' }
+  | { type: 'important' }
+  | { type: 'category'; id: string; label: string };
+
+export default function HomePage() {
+  const router = useRouter();
+  const [notes, setNotes] = useState<NoteDTO[]>([]);
+  const [categories, setCategories] = useState<CategoryDTO[]>([]);
+  const [filter, setFilter] = useState<Filter>({ type: 'all' });
+  const [sortBy, setSortBy] = useState<SortBy>('createdAt');
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateSelection>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [dailyStats, setDailyStats] = useState<DailyStatsDTO[]>([]);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+  // 当前 scope，用于 API 调用和 reorder
+  const currentScope: Scope =
+    filter.type === 'favorite'
+      ? 'favorite'
+      : filter.type === 'category'
+      ? 'category'
+      : 'all';
+
+  // 重要筛选同时包含 important 和 very_important
+  const importanceFilter =
+    filter.type === 'important' ? 'important,very_important' : undefined;
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const { categories: cats } = await api.listCategories();
+      setCategories(cats);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const loadNotes = useCallback(
+    async (append = false, currentOffset = 0) => {
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        const params: Parameters<typeof api.listNotes>[0] = {
+          sortBy,
+          scope: currentScope,
+          withSocial: true,
+          limit: 20,
+          offset: currentOffset,
+        };
+        if (filter.type === 'favorite') params.favorite = true;
+        if (filter.type === 'important') params.importance = importanceFilter;
+        if (filter.type === 'category') params.categoryId = filter.id;
+        if (dateFilter?.type === 'single') {
+          params.startDate = dateFilter.date;
+          params.endDate = dateFilter.date;
+        }
+        if (dateFilter?.type === 'range') {
+          params.startDate = dateFilter.start;
+          params.endDate = dateFilter.end;
+        }
+        const { notes, total, hasMore } = await api.listNotes(params);
+        setTotal(total);
+        setHasMore(hasMore);
+        setNotes((prev) => (append ? [...prev, ...notes] : notes));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (append) setLoadingMore(false);
+        else setLoading(false);
+      }
+    },
+    [filter, sortBy, currentScope, importanceFilter, dateFilter]
+  );
+
+  const loadDailyStats = useCallback(async () => {
+    try {
+      const params: Parameters<typeof api.getDailyStats>[0] = {
+        year: getYear(calendarMonth),
+        month: getMonth(calendarMonth) + 1,
+        scope: currentScope,
+      };
+      if (filter.type === 'category') params.categoryId = filter.id;
+      const { stats } = await api.getDailyStats(params);
+      setDailyStats(stats);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [calendarMonth, currentScope, filter]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  // 筛选/排序/日期变化时重置分页并加载
+  useEffect(() => {
+    setOffset(0);
+    loadNotes(false, 0);
+  }, [loadNotes]);
+
+  // 日历月份或筛选变化时加载每日统计
+  useEffect(() => {
+    loadDailyStats();
+  }, [loadDailyStats]);
+
+  const handleNoteCreated = (note: NoteDTO) => {
+    setNotes((prev) => [note, ...prev]);
+    loadCategories();
+    setSidebarRefreshKey((k) => k + 1);
+  };
+
+  const handleNoteUpdated = (note: NoteDTO) => {
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    loadCategories();
+    setSidebarRefreshKey((k) => k + 1);
+  };
+
+  const handleNoteDeleted = (id: string) => {
+    setNotes((prev) => {
+      const deleted = prev.find((n) => n.id === id);
+      if (deleted?.repostOfId) {
+        // 删除的是转发帖子，同步减少原文的转发计数
+        return prev
+          .filter((n) => n.id !== id)
+          .map((n) =>
+            n.id === deleted.repostOfId && n._social
+              ? {
+                  ...n,
+                  _social: {
+                    ...n._social,
+                    repostCount: Math.max(0, n._social.repostCount - 1),
+                  },
+                }
+              : n
+          );
+      }
+      return prev.filter((n) => n.id !== id);
+    });
+    loadCategories();
+    setSidebarRefreshKey((k) => k + 1);
+  };
+
+  const handleLoadMore = () => {
+    if (loadingMore || !hasMore) return;
+    const nextOffset = offset + 20;
+    setOffset(nextOffset);
+    loadNotes(true, nextOffset);
+  };
+
+  const handleSearchSubmit = (v: string) => {
+    if (v.trim()) {
+      router.push(`/search?q=${encodeURIComponent(v.trim())}`);
+    }
+  };
+
+  /**
+   * 自定义排序模式下的"上移/下移"操作
+   * 由于 API 排序是 desc（order 大的在前），上移=增大 order，下移=减小 order
+   * 简化做法：与相邻笔记交换 order 值
+   */
+  const handleMove = async (noteId: string, direction: 'up' | 'down') => {
+    const idx = notes.findIndex((n) => n.id === noteId);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= notes.length) return;
+
+    const a = notes[idx];
+    const b = notes[swapIdx];
+
+    // 在前端先交换，让 UI 立即响应
+    const orderField =
+      currentScope === 'favorite'
+        ? 'favoriteOrder'
+        : currentScope === 'category'
+        ? 'categoryOrder'
+        : 'globalOrder';
+
+    const newNotes = [...notes];
+    const aOrder = a[orderField];
+    const bOrder = b[orderField];
+    newNotes[idx] = { ...a, [orderField]: bOrder };
+    newNotes[swapIdx] = { ...b, [orderField]: aOrder };
+    setNotes(newNotes);
+
+    // 后端持久化
+    try {
+      await api.reorderNotes({
+        scope: currentScope,
+        items: [
+          { id: a.id, order: bOrder },
+          { id: b.id, order: aOrder },
+        ],
+      });
+    } catch (e: any) {
+      alert(e.message || '调整顺序失败');
+      loadNotes(); // 失败时重新加载
+    }
+  };
+
+  const title =
+    filter.type === 'all'
+      ? '全部笔记'
+      : filter.type === 'favorite'
+      ? '收藏'
+      : filter.type === 'important'
+      ? '重要'
+      : filter.label || '分类';
+
+  const showOrderControls = sortBy === 'custom';
+
+  // 统计置顶数量（用于UI分隔提示）
+  const pinnedCount = notes.filter((n) => n.pinned).length;
+
+  // 单日选择时的列表头部汇总（用 total 而不是 notes.length，避免分页导致数字对不上日历）
+  const dailySummary = useMemo(() => {
+    if (!dateFilter || dateFilter.type !== 'single') return null;
+    const important = notes.filter((n) => n.importance === 'important').length;
+    const veryImportant = notes.filter((n) => n.importance === 'very_important').length;
+    return { date: dateFilter.date, total, important, veryImportant };
+  }, [notes, dateFilter, total]);
+
+  return (
+    <div className="min-h-screen">
+      {/* 顶部栏 */}
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-ink-200">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="w-7 h-7 rounded-md bg-ink-900 flex items-center justify-center">
+              <PenLine size={15} className="text-white" />
+            </div>
+            <span className="font-serif text-lg font-semibold text-ink-900 hidden sm:block">
+              XB · 笔记
+            </span>
+          </div>
+
+          <SearchBar
+            value={searchValue}
+            onChange={setSearchValue}
+            onSubmit={handleSearchSubmit}
+          />
+
+          <button
+            onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-ink-600 hover:bg-ink-100 hover:text-ink-800 transition-colors flex-shrink-0"
+            title="从 Obsidian 导入笔记"
+          >
+            <Upload size={14} />
+            <span className="hidden md:inline">导入 Obsidian</span>
+          </button>
+        </div>
+      </header>
+
+      {/* 主体：左侧分类 + 右侧内容流 */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col lg:flex-row gap-8">
+        <div className="space-y-4 lg:sticky lg:top-8 lg:self-start">
+          <CalendarFilter
+            value={dateFilter}
+            onChange={setDateFilter}
+            onMonthChange={setCalendarMonth}
+            stats={dailyStats}
+          />
+          <CategorySidebar
+            categories={categories}
+            selected={filter}
+            onSelect={(sel) => setFilter(sel as Filter)}
+            onCategoriesChange={loadCategories}
+            refreshKey={sidebarRefreshKey}
+          />
+        </div>
+
+        <div className="flex-1 min-w-0 max-w-2xl mx-auto w-full space-y-4">
+          {/* 顶部编辑器 */}
+          <NoteEditor
+            categories={categories}
+            onSaved={(_n, isEdit) => {
+              if (!isEdit) handleNoteCreated(_n);
+            }}
+          />
+
+          {/* 列表标题 + 排序切换 */}
+          <div className="flex items-center justify-between pt-2 gap-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium text-ink-600">{title}</h2>
+              <span className="text-xs text-ink-400">{total} 条</span>
+            </div>
+            <SortToggle value={sortBy} onChange={setSortBy} />
+          </div>
+
+          {/* 单日汇总 */}
+          {dailySummary && (
+            <div className="text-sm text-ink-500 px-1">
+              {format(new Date(dailySummary.date), 'yyyy年M月d日')} · 共 {dailySummary.total} 条
+              {dailySummary.important > 0 && ` · 重要 ${dailySummary.important}`}
+              {dailySummary.veryImportant > 0 && ` · 极重要 ${dailySummary.veryImportant}`}
+            </div>
+          )}
+
+          {/* 笔记列表 */}
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-ink-400">
+              <Loader2 className="animate-spin" size={18} />
+            </div>
+          ) : notes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-ink-400">
+              <Inbox size={40} strokeWidth={1.2} />
+              <p className="mt-3 text-sm">
+                {filter.type === 'favorite'
+                  ? '还没有收藏的笔记'
+                  : filter.type === 'important'
+                  ? '还没有标记为重要的笔记'
+                  : filter.type === 'category'
+                  ? '这个分类下还没有笔记'
+                  : '开始记录你的第一条笔记吧'}
+              </p>
+              {filter.type === 'all' && (
+                <button
+                  onClick={() => setImportOpen(true)}
+                  className="mt-3 inline-flex items-center gap-1 text-xs text-accent-600 hover:text-accent-700"
+                >
+                  <Upload size={11} />
+                  或从 Obsidian 导入已有笔记
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {showOrderControls && pinnedCount > 0 && (
+                <div className="text-[11px] text-ink-400 px-1 flex items-center gap-1">
+                  <Pin size={9} fill="currentColor" className="text-accent-500" />
+                  置顶 ({pinnedCount})
+                </div>
+              )}
+              {notes.map((note, idx) => {
+                const isFirstPinned = note.pinned && idx === 0;
+                const isLastPinned =
+                  note.pinned && idx === pinnedCount - 1;
+                const isFirstNormal = !note.pinned && idx === pinnedCount;
+                const isLast = idx === notes.length - 1;
+
+                return (
+                  <div key={note.id}>
+                    {/* 置顶与普通笔记之间的分隔线 */}
+                    {showOrderControls &&
+                      idx > 0 &&
+                      !notes[idx - 1].pinned &&
+                      note.pinned && (
+                        <div className="text-[11px] text-ink-400 px-1 py-2 flex items-center gap-1">
+                          <Pin size={9} fill="currentColor" className="text-accent-500" />
+                          置顶
+                        </div>
+                      )}
+                    {showOrderControls &&
+                      idx > 0 &&
+                      notes[idx - 1].pinned &&
+                      !note.pinned && (
+                        <div className="text-[11px] text-ink-400 px-1 py-2">
+                          其他笔记
+                        </div>
+                      )}
+                    <NoteCard
+                      note={note}
+                      categories={categories}
+                      onUpdated={handleNoteUpdated}
+                      onDeleted={handleNoteDeleted}
+                      onReposted={handleNoteCreated}
+                      scope={currentScope}
+                      showOrderControls={showOrderControls}
+                      onMove={handleMove}
+                      isFirst={
+                        showOrderControls &&
+                        (note.pinned ? isFirstPinned : isFirstNormal)
+                      }
+                      isLast={showOrderControls && isLast}
+                    />
+                  </div>
+                );
+              })}
+
+              {showOrderControls && notes.length > 0 && (
+                <p className="text-[11px] text-ink-400 text-center pt-2">
+                  提示：用笔记右上角的 ↑↓ 按钮调整顺序
+                </p>
+              )}
+
+              {/* 加载更多 */}
+              {!loading && notes.length > 0 && (
+                <div className="pt-4 flex flex-col items-center gap-1">
+                  {hasMore ? (
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="text-xs text-ink-500 hover:text-accent-600 disabled:text-ink-300 flex items-center gap-1"
+                    >
+                      {loadingMore ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <span>加载更多</span>
+                      )}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-ink-300">
+                      已加载全部 {total} 条笔记
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+
+      <ObsidianImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setOffset(0);
+          loadNotes(false, 0);
+          loadCategories();
+          setSidebarRefreshKey((k) => k + 1);
+        }}
+      />
+    </div>
+  );
+}
+

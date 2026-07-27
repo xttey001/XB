@@ -1,0 +1,93 @@
+// Prisma Schema for XB Notes
+// 单用户笔记应用，SQLite 数据库
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Note {
+  id          String    @id @default(cuid())
+  content     String    // Markdown 正文
+  images      String    // JSON 字符串，存图片路径数组（SQLite 不支持原生数组）
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags        String    // JSON 字符串，存标签数组
+  isFavorite  Boolean   @default(false)
+
+  // 重要等级：important（重要）/ very_important（极重要），与标签解耦
+  importance  String?
+
+  // 置顶：各视图独立维护置顶状态
+  // pinned 为兼容性保留，实际按 scope 使用以下三个字段
+  pinned            Boolean   @default(false)
+  pinnedGlobal      Boolean   @default(false)
+  pinnedFavorite    Boolean   @default(false)
+  pinnedCategory    Boolean   @default(false)
+  pinOrder          Int       @default(0)
+
+  // 自定义排序：各列表独立维护
+  // - globalOrder:    "全部笔记"列表的排序
+  // - categoryOrder:  所属分类内的排序（同一笔记在不同分类视角下唯一）
+  // - favoriteOrder:  "收藏"列表内的排序
+  globalOrder     Int   @default(0)
+  categoryOrder   Int   @default(0)
+  favoriteOrder   Int   @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // 转发：指向被转发的原笔记
+  repostOfId  String?
+  repostOf    Note?     @relation("NoteReposts", fields: [repostOfId], references: [id], onDelete: SetNull)
+  reposts     Note[]    @relation("NoteReposts")
+
+  likes       Like[]
+  comments    Comment[]
+
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([isFavorite])
+  @@index([pinned])
+  @@index([repostOfId])
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([noteId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  content   String
+  images    String    @default("[]") // JSON 字符串，存图片路径数组
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([noteId])
+  @@index([parentId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#6B7280")
+  icon      String?
+  order     Int      @default(0)  // 分类在侧边栏中的排序
+  createdAt DateTime @default(now())
+  notes     Note[]
+}
