@@ -67,8 +67,10 @@ export default function NoteDetailPage() {
   const handleTogglePin = async () => {
     if (!note) return;
     try {
+      // 详情页不携带视图上下文，默认操作「全部笔记」置顶
       const { note: updated } = await api.updateNote(note.id, {
         pinned: !note.pinned,
+        scope: 'all',
       });
       setNote(updated);
     } catch (e: any) {

@@ -7,10 +7,12 @@ interface RouteParams {
   params: { id: string };
 }
 
-function toDTO(note: any, scope: 'all' | 'favorite' | 'category' = 'all'): NoteDTO {
+function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'category' = 'all'): NoteDTO {
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
+      : scope === 'important'
+      ? 'pinnedImportant'
       : scope === 'category'
       ? 'pinnedCategory'
       : 'pinnedGlobal';
@@ -36,11 +38,16 @@ function toDTO(note: any, scope: 'all' | 'favorite' | 'category' = 'all'): NoteD
     pinned: note[pinnedField],
     pinnedGlobal: note.pinnedGlobal,
     pinnedFavorite: note.pinnedFavorite,
+    pinnedImportant: note.pinnedImportant,
     pinnedCategory: note.pinnedCategory,
-    pinOrder: note.pinOrder,
+    globalPinOrder: note.globalPinOrder,
+    favoritePinOrder: note.favoritePinOrder,
+    importantPinOrder: note.importantPinOrder,
+    categoryPinOrder: note.categoryPinOrder,
     globalOrder: note.globalOrder,
-    categoryOrder: note.categoryOrder,
     favoriteOrder: note.favoriteOrder,
+    importantOrder: note.importantOrder,
+    categoryOrder: note.categoryOrder,
     repostOfId: note.repostOfId || null,
     repostOf: note.repostOf ? toDTO(note.repostOf, scope) : null,
     createdAt: note.createdAt.toISOString(),
@@ -86,24 +93,35 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: '笔记不存在' }, { status: 404 });
   }
 
-  // scope 决定更新哪个置顶字段
-  const scope = body.scope || 'all';
+  // scope 决定更新哪个置顶字段和置顶排序字段
+  const scope: 'all' | 'favorite' | 'important' | 'category' =
+    body.scope || 'all';
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
+      : scope === 'important'
+      ? 'pinnedImportant'
       : scope === 'category'
       ? 'pinnedCategory'
       : 'pinnedGlobal';
+  const pinOrderField =
+    scope === 'favorite'
+      ? 'favoritePinOrder'
+      : scope === 'important'
+      ? 'importantPinOrder'
+      : scope === 'category'
+      ? 'categoryPinOrder'
+      : 'globalPinOrder';
 
-  // 如果要把笔记设为置顶，且 pinOrder 没传，自动取当前最大 pinOrder + 1
+  // 如果要把笔记设为置顶，且 pinOrder 没传，自动取当前 scope 最大 pinOrder + 1
   let pinOrder = body.pinOrder;
   const currentlyPinnedInScope = (existing as any)[pinnedField];
   if (body.pinned === true && pinOrder === undefined && !currentlyPinnedInScope) {
-    const maxPin = await prisma.note.aggregate({ _max: { pinOrder: true } });
-    pinOrder = (maxPin._max.pinOrder ?? 0) + 1;
+    const maxPin = await prisma.note.aggregate({ _max: { [pinOrderField]: true } });
+    pinOrder = (maxPin._max[pinOrderField] ?? 0) + 1;
   }
   if (body.pinned === false) {
-    // 取消置顶时重置 pinOrder
+    // 取消置顶时重置当前 scope 的 pinOrder
     pinOrder = 0;
   }
 
@@ -119,10 +137,9 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       ...(body.importance !== undefined && { importance: body.importance }),
       ...(body.pinned !== undefined && {
-        pinned: body.pinned,
         [pinnedField]: body.pinned,
       }),
-      ...(pinOrder !== undefined && { pinOrder }),
+      ...(pinOrder !== undefined && { [pinOrderField]: pinOrder }),
     },
     include: { category: true },
   });

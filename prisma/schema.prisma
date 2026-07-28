@@ -23,20 +23,26 @@ model Note {
   importance  String?
 
   // 置顶：各视图独立维护置顶状态
-  // pinned 为兼容性保留，实际按 scope 使用以下三个字段
-  pinned            Boolean   @default(false)
   pinnedGlobal      Boolean   @default(false)
   pinnedFavorite    Boolean   @default(false)
+  pinnedImportant   Boolean   @default(false)
   pinnedCategory    Boolean   @default(false)
-  pinOrder          Int       @default(0)
+
+  // 置顶排序：各视图独立维护，避免跨视图互相干扰
+  globalPinOrder    Int   @default(0)
+  favoritePinOrder  Int   @default(0)
+  importantPinOrder Int   @default(0)
+  categoryPinOrder  Int   @default(0)
 
   // 自定义排序：各列表独立维护
   // - globalOrder:    "全部笔记"列表的排序
-  // - categoryOrder:  所属分类内的排序（同一笔记在不同分类视角下唯一）
   // - favoriteOrder:  "收藏"列表内的排序
+  // - importantOrder: "重要"列表内的排序
+  // - categoryOrder:  所属分类内的排序（同一笔记在不同分类视角下唯一）
   globalOrder     Int   @default(0)
-  categoryOrder   Int   @default(0)
   favoriteOrder   Int   @default(0)
+  importantOrder  Int   @default(0)
+  categoryOrder   Int   @default(0)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -53,7 +59,10 @@ model Note {
   @@index([createdAt])
   @@index([updatedAt])
   @@index([isFavorite])
-  @@index([pinned])
+  @@index([pinnedGlobal])
+  @@index([pinnedFavorite])
+  @@index([pinnedImportant])
+  @@index([pinnedCategory])
   @@index([repostOfId])
 }
 

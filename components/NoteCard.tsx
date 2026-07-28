@@ -35,7 +35,7 @@ interface NoteCardProps {
   onDeleted: (id: string) => void;
   onReposted?: (newNote: NoteDTO) => void;
   /** 当前所在视图范围，决定置顶操作影响哪个置顶字段 */
-  scope?: 'all' | 'favorite' | 'category';
+  scope?: 'all' | 'favorite' | 'important' | 'category';
   /** 自定义排序模式下显示上移/下移按钮 */
   showOrderControls?: boolean;
   /** 排序方向，用于判断上移/下移的语义 */

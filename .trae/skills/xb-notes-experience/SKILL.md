@@ -19,16 +19,34 @@ description: "XB 笔记项目开发经验库。遇到类似 UI/数据/交互问�
 
 ## 2. 置顶状态在不同视图互相干扰
 
-**问题**：在分类 A 内置顶的笔记，会在「全部笔记」和「收藏」里也置顶。
-**根因**：`Note` 表只有单个 `pinned` 字段，置顶是全局状态。
+**问题**：在分类 A 内置顶的笔记，会在「全部笔记」和「收藏」里也置顶；或者用户感觉修改后仍互相干扰。
+**根因**：`Note` 表只有单个 `pinned` 字段，置顶是全局状态；或前端列表切换视图时缓存了旧的 `pinned` 计算值。
 **解决**：
-1. Prisma schema 中将置顶拆分为三个独立字段：
+1. Prisma schema 中将置顶拆分为四个独立字段：
    - `pinnedGlobal`（全部笔记）
    - `pinnedFavorite`（收藏）
+   - `pinnedImportant`（重要）
    - `pinnedCategory`（分类）
+   对应置顶排序字段：`globalPinOrder`、`favoritePinOrder`、`importantPinOrder`、`categoryPinOrder`。
 2. `GET /api/notes` 根据 `scope` 选择对应字段排序，并把该字段作为 `pinned` 返回。
 3. `PUT /api/notes/[id]` 接收 `scope` 参数，只更新对应置顶字段。
-4. 旧数据迁移：`scripts/migrate-pinned.js` 把 `pinned=true` 复制到 `pinnedGlobal=true`。
+4. `NoteCard` 组件通过 `scope` prop 决定点击置顶按钮时更新哪个字段；`page.tsx` 传入 `currentScope`。
+5. 旧数据迁移：`scripts/migrate-pinned.js` 把旧 `pinned=true` 复制到 `pinnedGlobal=true`。
+
+**注意**：同一笔记可以在多个视图分别置顶（比如在「全部笔记」置顶、同时又在「收藏」置顶），这是设计预期，不是 bug。
+
+**排查/验证**：
+- 直接查库看四个字段：
+  ```js
+  const note = await prisma.note.findUnique({ where: { id } });
+  console.log(note.pinnedGlobal, note.pinnedFavorite, note.pinnedImportant, note.pinnedCategory);
+  ```
+- 或直接调 API 验证不同 scope 返回的 `pinned` 是否一致：
+  ```bash
+  curl -s "http://localhost:3300/api/notes?scope=all&limit=5"
+  curl -s "http://localhost:3300/api/notes?scope=category&categoryId=<id>&limit=5"
+  ```
+- 如果数据正确但 UI 仍显示错误，**强制刷新浏览器**（Ctrl+F5 / Cmd+Shift+R）排除 React 状态/缓存影响。
 
 ## 3. 详情页时间显示不够具体
 

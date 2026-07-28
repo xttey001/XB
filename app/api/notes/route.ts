@@ -4,7 +4,7 @@ import { parseJsonArray, stringifyJsonArray, generateSummary } from '@/lib/utils
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 type SortBy = 'createdAt' | 'updatedAt' | 'custom';
-type Scope = 'all' | 'favorite' | 'category';
+type Scope = 'all' | 'favorite' | 'important' | 'category';
 
 /**
  * GET /api/notes
@@ -81,6 +81,8 @@ export async function GET(req: NextRequest) {
     sortBy === 'custom'
       ? scope === 'favorite'
         ? 'favoriteOrder'
+        : scope === 'important'
+        ? 'importantOrder'
         : scope === 'category'
         ? 'categoryOrder'
         : 'globalOrder'
@@ -89,9 +91,20 @@ export async function GET(req: NextRequest) {
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
+      : scope === 'important'
+      ? 'pinnedImportant'
       : scope === 'category'
       ? 'pinnedCategory'
       : 'pinnedGlobal';
+
+  const pinOrderField =
+    scope === 'favorite'
+      ? 'favoritePinOrder'
+      : scope === 'important'
+      ? 'importantPinOrder'
+      : scope === 'category'
+      ? 'categoryPinOrder'
+      : 'globalPinOrder';
 
   const notes = await prisma.note.findMany({
     where,
@@ -107,7 +120,7 @@ export async function GET(req: NextRequest) {
           }
         : {}),
     },
-    orderBy: [{ [pinnedField]: 'desc' }, { pinOrder: 'desc' }, { [orderField]: 'desc' }],
+    orderBy: [{ [pinnedField]: 'desc' }, { [pinOrderField]: 'desc' }, { [orderField]: 'desc' }],
     take: limit,
     skip: offset,
   });
@@ -136,11 +149,16 @@ export async function GET(req: NextRequest) {
     pinned: n[pinnedField],
     pinnedGlobal: n.pinnedGlobal,
     pinnedFavorite: n.pinnedFavorite,
+    pinnedImportant: n.pinnedImportant,
     pinnedCategory: n.pinnedCategory,
-    pinOrder: n.pinOrder,
+    globalPinOrder: n.globalPinOrder,
+    favoritePinOrder: n.favoritePinOrder,
+    importantPinOrder: n.importantPinOrder,
+    categoryPinOrder: n.categoryPinOrder,
     globalOrder: n.globalOrder,
-    categoryOrder: n.categoryOrder,
     favoriteOrder: n.favoriteOrder,
+    importantOrder: n.importantOrder,
+    categoryOrder: n.categoryOrder,
     repostOfId: n.repostOfId || null,
     repostOf: n.repostOf
       ? {
@@ -164,11 +182,16 @@ export async function GET(req: NextRequest) {
           pinned: n.repostOf[pinnedField],
           pinnedGlobal: n.repostOf.pinnedGlobal,
           pinnedFavorite: n.repostOf.pinnedFavorite,
+          pinnedImportant: n.repostOf.pinnedImportant,
           pinnedCategory: n.repostOf.pinnedCategory,
-          pinOrder: n.repostOf.pinOrder,
+          globalPinOrder: n.repostOf.globalPinOrder,
+          favoritePinOrder: n.repostOf.favoritePinOrder,
+          importantPinOrder: n.repostOf.importantPinOrder,
+          categoryPinOrder: n.repostOf.categoryPinOrder,
           globalOrder: n.repostOf.globalOrder,
-          categoryOrder: n.repostOf.categoryOrder,
           favoriteOrder: n.repostOf.favoriteOrder,
+          importantOrder: n.repostOf.importantOrder,
+          categoryOrder: n.repostOf.categoryOrder,
           repostOfId: n.repostOf.repostOfId || null,
           repostOf: null,
           createdAt: n.repostOf.createdAt.toISOString(),
@@ -226,14 +249,18 @@ export async function POST(req: NextRequest) {
       categoryId: body.categoryId ?? null,
       isFavorite: body.isFavorite ?? false,
       importance: body.importance ?? null,
-      pinned: body.pinned ?? false,
       pinnedGlobal: false,
       pinnedFavorite: false,
+      pinnedImportant: false,
       pinnedCategory: false,
-      pinOrder: body.pinOrder ?? 0,
+      globalPinOrder: 0,
+      favoritePinOrder: 0,
+      importantPinOrder: 0,
+      categoryPinOrder: 0,
       globalOrder: newOrder,
-      categoryOrder: newOrder,
       favoriteOrder: newOrder,
+      importantOrder: newOrder,
+      categoryOrder: newOrder,
     },
     include: { category: true },
   });
@@ -256,14 +283,19 @@ export async function POST(req: NextRequest) {
       : null,
     isFavorite: note.isFavorite,
     importance: (note.importance as 'important' | 'very_important' | null) || null,
-    pinned: note.pinned,
+    pinned: note.pinnedGlobal,
     pinnedGlobal: note.pinnedGlobal,
     pinnedFavorite: note.pinnedFavorite,
+    pinnedImportant: note.pinnedImportant,
     pinnedCategory: note.pinnedCategory,
-    pinOrder: note.pinOrder,
+    globalPinOrder: note.globalPinOrder,
+    favoritePinOrder: note.favoritePinOrder,
+    importantPinOrder: note.importantPinOrder,
+    categoryPinOrder: note.categoryPinOrder,
     globalOrder: note.globalOrder,
-    categoryOrder: note.categoryOrder,
     favoriteOrder: note.favoriteOrder,
+    importantOrder: note.importantOrder,
+    categoryOrder: note.categoryOrder,
     repostOfId: note.repostOfId || null,
     repostOf: null,
     createdAt: note.createdAt.toISOString(),

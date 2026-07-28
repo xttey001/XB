@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
   const orderField =
     body.scope === 'favorite'
       ? 'favoriteOrder'
+      : body.scope === 'important'
+      ? 'importantOrder'
       : body.scope === 'category'
       ? 'categoryOrder'
       : 'globalOrder';
@@ -33,9 +35,20 @@ export async function POST(req: NextRequest) {
   const pinnedField =
     body.scope === 'favorite'
       ? 'pinnedFavorite'
+      : body.scope === 'important'
+      ? 'pinnedImportant'
       : body.scope === 'category'
       ? 'pinnedCategory'
       : 'pinnedGlobal';
+
+  const pinOrderField =
+    body.scope === 'favorite'
+      ? 'favoritePinOrder'
+      : body.scope === 'important'
+      ? 'importantPinOrder'
+      : body.scope === 'category'
+      ? 'categoryPinOrder'
+      : 'globalPinOrder';
 
   // 用事务批量更新
   await prisma.$transaction(async (tx) => {
@@ -53,9 +66,8 @@ export async function POST(req: NextRequest) {
         await tx.note.update({
           where: { id: p.id },
           data: {
-            pinned: p.pinned,
             [pinnedField]: p.pinned,
-            pinOrder: p.pinOrder,
+            [pinOrderField]: p.pinOrder,
           },
         });
       }

@@ -30,9 +30,10 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
 ## 3. 数据模型约定
 
 - `Note.images` 和 `Note.tags` 在 SQLite 中以 **JSON 字符串** 存储，读写时必须使用 `stringifyJsonArray` / `parseJsonArray`。
-- 笔记支持三视图独立排序与置顶：
-  - 排序字段：`globalOrder`、`categoryOrder`、`favoriteOrder`
-  - 置顶字段：`pinnedGlobal`、`pinnedFavorite`、`pinnedCategory`
+- 笔记支持四视图独立排序与置顶（全部笔记 / 收藏 / 重要 / 分类）：
+  - 排序字段：`globalOrder`、`favoriteOrder`、`importantOrder`、`categoryOrder`
+  - 置顶字段：`pinnedGlobal`、`pinnedFavorite`、`pinnedImportant`、`pinnedCategory`
+  - 置顶排序字段：`globalPinOrder`、`favoritePinOrder`、`importantPinOrder`、`categoryPinOrder`
   - API 返回的 `pinned` 字段由当前 `scope` 计算得出。
 - 社交数据为独立表：`Like`（一对一）、`Comment`（支持嵌套 replies）、`Repost`。
 - 分类 `Category` 支持 `color` 与 `icon`，左侧栏文字颜色应使用 `category.color`。

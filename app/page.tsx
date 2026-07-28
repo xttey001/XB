@@ -48,6 +48,8 @@ export default function HomePage() {
   const currentScope: Scope =
     filter.type === 'favorite'
       ? 'favorite'
+      : filter.type === 'important'
+      ? 'important'
       : filter.type === 'category'
       ? 'category'
       : 'all';
@@ -200,6 +202,8 @@ export default function HomePage() {
     const orderField =
       currentScope === 'favorite'
         ? 'favoriteOrder'
+        : currentScope === 'important'
+        ? 'importantOrder'
         : currentScope === 'category'
         ? 'categoryOrder'
         : 'globalOrder';

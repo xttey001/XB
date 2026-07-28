@@ -33,11 +33,18 @@ export interface NoteDTO {
   /** 各视图独立置顶状态 */
   pinnedGlobal: boolean;
   pinnedFavorite: boolean;
+  pinnedImportant: boolean;
   pinnedCategory: boolean;
-  pinOrder: number;
+  /** 各视图独立置顶排序 */
+  globalPinOrder: number;
+  favoritePinOrder: number;
+  importantPinOrder: number;
+  categoryPinOrder: number;
+  /** 各视图独立自定义排序 */
   globalOrder: number;
-  categoryOrder: number;
   favoriteOrder: number;
+  importantOrder: number;
+  categoryOrder: number;
   repostOfId: string | null;
   repostOf: NoteDTO | null;
   createdAt: string;
@@ -71,7 +78,7 @@ export interface NoteInput {
   /** 重要等级：important / very_important，传 null 表示取消 */
   importance?: NoteImportance | null;
   /** 置顶操作所在的视图范围，后端据此更新对应置顶字段 */
-  scope?: 'all' | 'favorite' | 'category';
+  scope?: 'all' | 'favorite' | 'important' | 'category';
   pinned?: boolean;
   pinOrder?: number;
 }
@@ -83,7 +90,7 @@ export interface ReorderItem {
 }
 
 export interface NoteReorderInput {
-  scope: 'all' | 'favorite' | 'category';
+  scope: 'all' | 'favorite' | 'important' | 'category';
   items: ReorderItem[];
   /** 同时更新置顶状态时使用 */
   pinUpdates?: Array<{ id: string; pinned: boolean; pinOrder: number }>;
