@@ -285,7 +285,7 @@ export default function HomePage() {
 
       {/* 主体：左侧分类 + 右侧内容流 */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col lg:flex-row gap-8">
-        <div className="space-y-4 lg:sticky lg:top-8 lg:self-start">
+        <div className="w-full lg:w-64 space-y-4 lg:sticky lg:top-24 lg:self-start lg:h-[calc(100vh-7rem)] lg:overflow-y-auto lg:overflow-x-hidden">
           <CalendarFilter
             value={dateFilter}
             onChange={setDateFilter}

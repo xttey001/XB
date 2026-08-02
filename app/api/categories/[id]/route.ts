@@ -8,7 +8,7 @@ interface RouteParams {
 /** PUT /api/categories/[id] —— 修改分类 */
 export async function PUT(req: NextRequest, { params }: RouteParams) {
   const body = await req.json();
-  const { name, color, icon } = body;
+  const { name, color, icon, pinned, order } = body;
 
   try {
     const category = await prisma.category.update({
@@ -17,6 +17,8 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         ...(name !== undefined && { name: String(name).trim() }),
         ...(color !== undefined && { color: String(color) }),
         ...(icon !== undefined && { icon: icon === '' ? null : String(icon) }),
+        ...(pinned !== undefined && { pinned: Boolean(pinned) }),
+        ...(order !== undefined && { order: Number(order) }),
       },
     });
     return NextResponse.json({ category });

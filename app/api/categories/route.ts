@@ -6,7 +6,7 @@ import type { CategoryDTO } from '@/lib/types';
 export async function GET() {
   const categories = await prisma.category.findMany({
     include: { _count: { select: { notes: true } } },
-    orderBy: [{ order: 'desc' }, { createdAt: 'asc' }],
+    orderBy: [{ pinned: 'desc' }, { order: 'desc' }, { createdAt: 'asc' }],
   });
 
   const data: CategoryDTO[] = categories.map((c) => ({
@@ -15,6 +15,7 @@ export async function GET() {
     color: c.color,
     icon: c.icon,
     order: c.order,
+    pinned: c.pinned,
     createdAt: c.createdAt.toISOString(),
     _count: { notes: c._count.notes },
   }));

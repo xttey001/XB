@@ -65,6 +65,7 @@ export interface CategoryDTO {
   color: string;
   icon: string | null;
   order: number;
+  pinned: boolean;
   createdAt: string;
   _count?: { notes: number };
 }

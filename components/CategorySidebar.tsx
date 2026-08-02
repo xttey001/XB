@@ -14,6 +14,7 @@ import {
   Loader2,
   ChevronUp,
   ChevronDown,
+  Pin,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -70,6 +71,7 @@ export default function CategorySidebar({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [pinningId, setPinningId] = useState<string | null>(null);
   const [importantCount, setImportantCount] = useState<number | null>(null);
 
   // 加载重要笔记合并数量（重要 + 极重要）
@@ -178,6 +180,26 @@ export default function CategorySidebar({
       alert(e.message);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleTogglePin = async (c: CategoryDTO) => {
+    setPinningId(c.id);
+    try {
+      const update: Partial<{ pinned: boolean; order: number }> = {
+        pinned: !c.pinned,
+      };
+      if (!c.pinned) {
+        // 置顶时把 order 设为当前最大 + 1，确保排在置顶组最前面
+        const maxOrder = categories.reduce((max, cat) => Math.max(max, cat.order), 0);
+        update.order = maxOrder + 1;
+      }
+      await api.updateCategory(c.id, update);
+      onCategoriesChange();
+    } catch (e: any) {
+      alert(e.message || '置顶操作失败');
+    } finally {
+      setPinningId(null);
     }
   };
 
@@ -384,10 +406,22 @@ export default function CategorySidebar({
                   )}
                 </button>
                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity pr-1">
-                  {movingId === c.id ? (
+                  {movingId === c.id || pinningId === c.id ? (
                     <Loader2 size={11} className="animate-spin text-ink-400" />
                   ) : (
                     <>
+                      <button
+                        onClick={() => handleTogglePin(c)}
+                        className={cn(
+                          'p-1 rounded hover:bg-white/60',
+                          c.pinned
+                            ? 'text-accent-600'
+                            : 'text-ink-400 hover:text-ink-600'
+                        )}
+                        title={c.pinned ? '取消置顶' : '置顶'}
+                      >
+                        <Pin size={11} className={cn(c.pinned && 'fill-current')} />
+                      </button>
                       <button
                         onClick={() => handleMove(c.id, 'up')}
                         disabled={idx === 0}

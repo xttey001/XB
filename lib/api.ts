@@ -116,7 +116,7 @@ export const api = {
 
   updateCategory(
     id: string,
-    input: Partial<{ name: string; color: string; icon: string }>
+    input: Partial<{ name: string; color: string; icon: string; pinned: boolean; order: number }>
   ): Promise<{ category: CategoryDTO }> {
     return request(`/api/categories/${id}`, {
       method: 'PUT',

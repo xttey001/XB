@@ -97,6 +97,7 @@ model Category {
   color     String   @default("#6B7280")
   icon      String?
   order     Int      @default(0)  // 分类在侧边栏中的排序
+  pinned    Boolean  @default(false) // 是否置顶在分类列表最前
   createdAt DateTime @default(now())
   notes     Note[]
 }
