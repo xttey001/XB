@@ -13,6 +13,7 @@ import {
   ChevronUp,
   ChevronDown,
   Maximize2,
+  ArrowUpToLine,
 } from 'lucide-react';
 import { cn, formatFullTime } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -35,7 +36,7 @@ interface NoteCardProps {
   onDeleted: (id: string) => void;
   onReposted?: (newNote: NoteDTO) => void;
   /** 当前所在视图范围，决定置顶操作影响哪个置顶字段 */
-  scope?: 'all' | 'favorite' | 'important' | 'category';
+  scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
   /** 自定义排序模式下显示上移/下移按钮 */
   showOrderControls?: boolean;
   /** 排序方向，用于判断上移/下移的语义 */
@@ -101,6 +102,13 @@ export default function NoteCard({
 
   const handleTogglePin = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    // allPinned 视图中取消置顶时，提示用户这将清除所有视图的置顶状态
+    if (scope === 'allPinned' && note.pinned) {
+      const confirmed = window.confirm('确定要取消置顶吗？这将从所有视图中移除该笔记的置顶状态。');
+      if (!confirmed) return;
+    }
+    
     setTogglingPin(true);
     try {
       const { note: updated } = await api.updateNote(note.id, {
@@ -112,6 +120,37 @@ export default function NoteCard({
       alert(e.message);
     } finally {
       setTogglingPin(false);
+    }
+  };
+
+  const [pinningToTop, setPinningToTop] = useState(false);
+
+  // 判断当前笔记是否已经置顶到顶部（globalPinOrder > 0）
+  const isPinnedToTop = scope === 'allPinned' && note.globalPinOrder > 0;
+
+  const handlePinToTop = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinningToTop(true);
+    try {
+      if (isPinnedToTop) {
+        // 取消置顶到顶部：将 pinOrder 重置为 0
+        const { note: updated } = await api.updateNote(note.id, {
+          pinOrder: 0,
+          scope: 'allPinned',
+        });
+        onUpdated(updated);
+      } else {
+        // 置顶到顶部：设置 pinOrder 为最大值 + 1
+        const { note: updated } = await api.updateNote(note.id, {
+          forcePinToTop: true,
+          scope: 'allPinned',
+        });
+        onUpdated(updated);
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setPinningToTop(false);
     }
   };
 
@@ -199,7 +238,17 @@ export default function NoteCard({
                 color: note.category.color,
               }}
             >
-              {note.category.icon && <span>{note.category.icon}</span>}
+              {note.category.icon && (
+                (note.category.icon || '').trim().startsWith('/') ? (
+                  <img
+                    src={note.category.icon.trim()}
+                    alt=""
+                    className="w-3.5 h-3.5 rounded-full object-cover inline-block align-middle"
+                  />
+                ) : (
+                  <span>{note.category.icon}</span>
+                )
+              )}
               {note.category.name}
             </span>
           )}
@@ -270,6 +319,27 @@ export default function NoteCard({
               <Pin size={14} fill={note.pinned ? 'currentColor' : 'none'} />
             )}
           </button>
+          
+          {/* allPinned 视图中显示「置顶到顶部」按钮 */}
+          {scope === 'allPinned' && note.pinned && (
+            <button
+              onClick={handlePinToTop}
+              disabled={pinningToTop}
+              className={cn(
+                'p-1.5 rounded transition-colors',
+                isPinnedToTop
+                  ? 'bg-accent-100 text-accent-600 hover:bg-accent-200'
+                  : 'text-ink-400 hover:text-accent-500 hover:bg-accent-50'
+              )}
+              title={isPinnedToTop ? '取消置顶到顶部' : '置顶到顶部'}
+            >
+              {pinningToTop ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <ArrowUpToLine size={14} fill={isPinnedToTop ? 'currentColor' : 'none'} />
+              )}
+            </button>
+          )}
           <button
             onClick={handleToggleFav}
             disabled={togglingFav}
@@ -322,7 +392,7 @@ export default function NoteCard({
 
       {/* 正文：长内容显示摘要，短内容显示完整富文本 */}
       {displaySummary ? (
-        <div onClick={handleCardClick} className="cursor-pointer text-sm text-ink-800 leading-relaxed">
+        <div onClick={handleCardClick} className="cursor-pointer text-lg text-ink-800 leading-relaxed">
           {note.summary}
         </div>
       ) : (

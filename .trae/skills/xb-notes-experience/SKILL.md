@@ -5,6 +5,8 @@ description: "XB 笔记项目开发经验库。遇到类似 UI/数据/交互问�
 
 # XB 笔记项目经验库
 
+> **最后更新**：2026-08-16
+
 ## 1. 分类颜色未在左侧栏生效
 
 **问题**：分类设置了颜色，但左侧栏分类名称仍显示灰色。
@@ -22,29 +24,54 @@ description: "XB 笔记项目开发经验库。遇到类似 UI/数据/交互问�
 **问题**：在分类 A 内置顶的笔记，会在「全部笔记」和「收藏」里也置顶；或者用户感觉修改后仍互相干扰。
 **根因**：`Note` 表只有单个 `pinned` 字段，置顶是全局状态；或前端列表切换视图时缓存了旧的 `pinned` 计算值。
 **解决**：
-1. Prisma schema 中将置顶拆分为四个独立字段：
+1. Prisma schema 中将置顶拆分为六个独立字段：
    - `pinnedGlobal`（全部笔记）
    - `pinnedFavorite`（收藏）
    - `pinnedImportant`（重要）
    - `pinnedCategory`（分类）
-   对应置顶排序字段：`globalPinOrder`、`favoritePinOrder`、`importantPinOrder`、`categoryPinOrder`。
+   - `pinnedLiked`（点赞）
+   - `pinnedReposted`（转发）
+   对应置顶排序字段：`globalPinOrder`、`favoritePinOrder`、`importantPinOrder`、`categoryPinOrder`、`likedPinOrder`、`repostedPinOrder`。
 2. `GET /api/notes` 根据 `scope` 选择对应字段排序，并把该字段作为 `pinned` 返回。
 3. `PUT /api/notes/[id]` 接收 `scope` 参数，只更新对应置顶字段。
 4. `NoteCard` 组件通过 `scope` prop 决定点击置顶按钮时更新哪个字段；`page.tsx` 传入 `currentScope`。
 5. 旧数据迁移：`scripts/migrate-pinned.js` 把旧 `pinned=true` 复制到 `pinnedGlobal=true`。
 
+**支持的 scope 映射表**：
+
+| 视图 | scope 参数 | 置顶字段 | 排序字段 |
+|------|-----------|---------|---------|
+| 全部笔记 | `all` | `pinnedGlobal` | `globalPinOrder` |
+| 收藏 | `favorite` | `pinnedFavorite` | `favoritePinOrder` |
+| 重要 | `important` | `pinnedImportant` | `importantPinOrder` |
+| 分类 | `category` | `pinnedCategory` | `categoryPinOrder` |
+| 点赞 | `liked` | `pinnedLiked` | `likedPinOrder` |
+| 转发 | `reposted` | `pinnedReposted` | `repostedPinOrder` |
+
 **注意**：同一笔记可以在多个视图分别置顶（比如在「全部笔记」置顶、同时又在「收藏」置顶），这是设计预期，不是 bug。
 
+**新增视图的关键改动文件**：
+- `prisma/schema.prisma`：新增 `pinnedLiked`、`pinnedReposted`、`likedPinOrder`、`repostedPinOrder` 字段及索引
+- `lib/types.ts`：`NoteDTO` 添加新字段；`Scope` 类型添加 `'liked' | 'reposted'`
+- `lib/api.ts`：`Scope` 类型扩展
+- `app/api/notes/route.ts`：GET 接口支持 `liked`/`reposted` 查询参数，scope 处理逻辑
+- `app/api/notes/[id]/route.ts`：PUT 接口的 scope 处理支持新视图
+- `app/api/notes/reorder/route.ts`：排序逻辑支持新视图
+- `app/api/notes/[id]/reposts/route.ts`：DTO 映射添加新字段，创建时初始化
+- `components/NoteCard.tsx`：scope prop 类型扩展
+- `components/CategorySidebar.tsx`：添加「点赞」「转发」菜单项及数量统计
+- `app/page.tsx`：`Filter` 类型扩展、`currentScope` 映射、禁用新视图的自定义排序
+
 **排查/验证**：
-- 直接查库看四个字段：
+- 直接查库看字段：
   ```js
   const note = await prisma.note.findUnique({ where: { id } });
-  console.log(note.pinnedGlobal, note.pinnedFavorite, note.pinnedImportant, note.pinnedCategory);
+  console.log(note.pinnedLiked, note.pinnedReposted, note.likedPinOrder, note.repostedPinOrder);
   ```
 - 或直接调 API 验证不同 scope 返回的 `pinned` 是否一致：
   ```bash
-  curl -s "http://localhost:3300/api/notes?scope=all&limit=5"
-  curl -s "http://localhost:3300/api/notes?scope=category&categoryId=<id>&limit=5"
+  curl -s "http://localhost:3300/api/notes?scope=liked&limit=5"
+  curl -s "http://localhost:3300/api/notes?scope=reposted&limit=5"
   ```
 - 如果数据正确但 UI 仍显示错误，**强制刷新浏览器**（Ctrl+F5 / Cmd+Shift+R）排除 React 状态/缓存影响。
 
@@ -326,3 +353,371 @@ const dailySummary = useMemo(() => {
 - 开发服务：`npm run dev`（端口 3300）
 - 数据库同步：`npx prisma db push`
 - 类型检查：`npx tsc --noEmit`
+
+## 18. 笔记双向链接功能实现
+
+**功能**：支持在笔记中链接到其他笔记，点击可跳转；详情页显示出链、反链、同标签关联笔记。
+
+**架构设计**：
+
+```
+编辑器输入 → 点击🔗按钮 → NoteLinkDialog 搜索 → 选择笔记 → 插入链接 HTML
+                                                              ↓
+                                                     <a href="/note/{id}" class="note-link">标题</a>
+                                                              ↓
+                                              保存时 syncNoteLinks() 自动解析
+                                                              ↓
+                                              更新 NoteLink 表（sourceId + targetId）
+                                                              ↓
+                                              详情页 RelatedNotes 读取展示
+```
+
+**新增文件清单**：
+
+| 文件 | 说明 |
+|------|------|
+| `lib/link-parser.ts` | 链接解析工具：`extractLinkedNoteIds()` 从 HTML 提取链接 ID，`syncNoteLinks()` 同步维护 NoteLink 表 |
+| `app/api/notes/search/route.ts` | 搜索 API：`GET /api/notes/search?q=xxx` |
+| `app/api/notes/[id]/links/route.ts` | 链接查询 API：`GET /api/notes/[id]/links` |
+| `components/NoteLinkDialog.tsx` | 编辑器内笔记搜索弹窗，支持防抖搜索 + 键盘导航 |
+| `components/RelatedNotes.tsx` | 详情页相关笔记面板（出链/反链/同标签） |
+
+**修改文件清单**：
+
+| 文件 | 修改内容 |
+|------|----------|
+| `prisma/schema.prisma` | 新增 `NoteLink` 模型，Note 模型新增 `outgoingLinks`/`incomingLinks` 关系 |
+| `app/api/notes/route.ts` | POST 创建笔记后调用 `syncNoteLinks()` |
+| `app/api/notes/[id]/route.ts` | PUT 更新笔记后调用 `syncNoteLinks()`（当 content 有变更时） |
+| `lib/api.ts` | 新增 `api.searchNotes()` 和 `api.getNoteLinks()` 方法及类型定义 |
+| `components/TiptapEditor.tsx` | 工具栏新增链接按钮，集成 NoteLinkDialog |
+| `app/note/[id]/page.tsx` | 详情页底部集成 RelatedNotes |
+| `app/globals.css` | 新增 `.note-link` 样式类 |
+
+**关键设计决策**：
+
+1. **链接格式**：使用标准 `<a>` 标签 + `class="note-link"` + `data-note-id` 属性，保证兼容性
+2. **自动维护**：保存时自动解析，无需用户手动管理链接关系；删除笔记时级联删除链接记录
+3. **同标签推荐**：当笔记有标签时，自动推荐相同标签的笔记（排除已链接的和自身），限制 6 条
+4. **链接文本策略**：有选中文字时用选中文字作为链接文本，否则使用目标笔记标题
+5. **分类 Category DTO 缺少 `pinned` 字段问题**：修复了多个 API 文件中 CategoryDTO 映射遗漏 `pinned` 字段的问题（`categories/route.ts`、`notes/route.ts`、`notes/[id]/route.ts`、`notes/[id]/reposts/route.ts`）
+
+**样式说明**：
+
+```css
+.note-link {
+  @apply text-accent-600 font-medium no-underline border-b border-dashed 
+         border-accent-100 hover:border-accent-600 hover:text-accent-700 
+         cursor-pointer transition-colors;
+}
+```
+
+使用虚线边框区分笔记链接与普通超链接。
+
+**注意事项**：
+
+- `api/notes/route.ts` 中的 NoteDTO 映射需确保 category 对象包含 `pinned` 字段（本次修复了遗漏）
+- `syncNoteLinks()` 使用 `Promise.all` 并行处理新增和删除，性能较好
+- 搜索 API 的摘要字段使用纯文本（去除 HTML 标签），最大 80 字符
+
+## 19. 置顶按钮实时更新排序原理
+
+**问题**：在「置顶」视图或其他分类视图中点击置顶/取消置顶按钮后，笔记位置不会实时更新，需要刷新页面才能看到变化。
+
+**根因**：`handleNoteUpdated` 函数只更新了笔记数据（`map` 替换），但没有重新排序数组。排序逻辑完全依赖后端 API 返回的顺序，但前端状态没有同步排序。
+
+**解决**：在 `handleNoteUpdated` 中添加实时排序逻辑，与后端 API 的排序规则保持一致。
+
+### 实时更新原理
+
+```
+用户点击置顶按钮
+    ↓
+API 更新笔记的置顶状态和排序值
+    ↓
+返回更新后的 NoteDTO
+    ↓
+handleNoteUpdated 接收更新后的笔记
+    ↓
+setNotes 更新状态：map 替换该笔记 + sort 重新排序
+    ↓
+React 重新渲染列表（无需刷新页面）
+```
+
+### 排序规则（与 API 保持一致）
+
+1. **allPinned 视图**：按 `globalPinOrder` 降序 → `createdAt` 降序
+2. **其他视图**：按对应 `pinnedField` 降序 → `pinOrderField` 降序 → `orderField`/`createdAt` 降序
+
+### Scope 字段映射表
+
+| Scope | 置顶字段 (pinnedField) | 排序字段 (pinOrderField) | 自定义排序 (orderField) |
+|-------|----------------------|------------------------|----------------------|
+| `all` | `pinnedGlobal` | `globalPinOrder` | `globalOrder` |
+| `favorite` | `pinnedFavorite` | `favoritePinOrder` | `favoriteOrder` |
+| `important` | `pinnedImportant` | `importantPinOrder` | `importantOrder` |
+| `veryImportant` | `pinnedVeryImportant` | `veryImportantPinOrder` | `importantOrder` |
+| `category` | `pinnedCategory` | `categoryPinOrder` | `categoryOrder` |
+| `liked` | `pinnedLiked` | `likedPinOrder` | `globalOrder` |
+| `reposted` | `pinnedReposted` | `repostedPinOrder` | `globalOrder` |
+
+### 关键代码实现
+
+**`app/page.tsx`** 中的 `handleNoteUpdated`：
+
+```tsx
+const handleNoteUpdated = (note: NoteDTO) => {
+  setNotes((prev) => {
+    const updated = prev.map((n) => (n.id === note.id ? note : n));
+    
+    // allPinned 视图特殊处理
+    if (currentScope === 'allPinned') {
+      return updated.sort((a, b) => {
+        if (b.globalPinOrder !== a.globalPinOrder) {
+          return b.globalPinOrder - a.globalPinOrder;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    }
+    
+    // 其他视图：按映射表排序
+    const pinnedFieldMap = { all: 'pinnedGlobal', favorite: 'pinnedFavorite', ... };
+    const pinOrderFieldMap = { all: 'globalPinOrder', ... };
+    const orderFieldMap = { all: 'globalOrder', ... };
+    
+    const pinnedField = pinnedFieldMap[currentScope];
+    const pinOrderField = pinOrderFieldMap[currentScope];
+    const orderField = orderFieldMap[currentScope];
+    
+    return updated.sort((a, b) => {
+      // 1. 先按置顶状态排序
+      if (a[pinnedField] !== b[pinnedField]) {
+        return b[pinnedField] ? 1 : -1;
+      }
+      // 2. 再按 pinOrder 排序
+      if (a[pinOrderField] !== b[pinOrderField]) {
+        return b[pinOrderField] - a[pinOrderField];
+      }
+      // 3. 最后按 order 或 createdAt 排序
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  });
+};
+```
+
+### 扩展视图注意事项
+
+新增视图时需要同步更新：
+1. `lib/types.ts` - `NoteDTO` 添加新字段、`Scope` 类型扩展
+2. `app/api/notes/route.ts` - GET 接口添加新 scope 的排序逻辑
+3. `app/api/notes/[id]/route.ts` - PUT 接口添加新 scope 的置顶字段处理
+4. `app/page.tsx` - `handleNoteUpdated` 的三个映射表添加新字段
+5. `components/NoteCard.tsx` - 按钮显示逻辑适配新 scope
+
+### 已实现实时更新的功能列表
+
+| 功能 | 触发方式 | 实时更新逻辑 |
+|------|----------|-------------|
+| 置顶/取消置顶 | `handleTogglePin` → `onUpdated` | `handleNoteUpdated` 重新排序 |
+| 置顶到顶部 | `handlePinToTop` → `onUpdated` | `handleNoteUpdated` 重新排序（allPinned 特殊逻辑） |
+| 收藏/取消收藏 | `handleToggleFav` → `onUpdated` | `handleNoteUpdated` 仅更新状态，不改变位置 |
+| 重要等级更新 | `handleUpdateImportance` → `onUpdated` | `handleNoteUpdated` 重新排序 |
+| 自定义排序上下移 | `handleMove` | 直接交换数组位置 + 更新 order 值 |
+| 点赞 | `NoteSocial.handleToggleLike` → `onUpdate` | `handleNoteUpdated` 仅更新状态 |
+| 删除 | `handleDelete` → `onDeleted` | `handleNoteDeleted` 过滤掉已删除的笔记 |
+
+**注意**：自定义排序模式下，`handleMove` 会直接交换数组中笔记的位置，而不仅仅交换 `order` 值。
+
+## 20. 分类自定义图标（图片路径）在原生 select 中显示为文本
+
+**问题**：分类 `icon` 字段存储了图片路径（如 `/icons/naruto/kakashi.jpg`），在页面某些位置能正常渲染为图片，但在**笔记编辑器的分类下拉选择器**中显示为纯文本路径。
+
+**第一性原理分析**：
+- emoji/文字图标能显示：因为它是合法 React 字符串子节点，`<span>🐱</span>` 浏览器直接渲染为 emoji 图形
+- 图片路径显示为文本：HTML 原生 `<option>` 标签**只能包含纯文本**，无法嵌入 `<img>` 标签。`<option>{"/icons/naruto/kakashi.jpg"}</option>` 会原样输出字符串
+
+**排查路径**：
+1. 数据库 icon 值正确（用 `node scripts/check-icons.js` 查）
+2. 前端渲染逻辑（`isImageIcon` 判断是否以 `/` 开头）
+3. **关键定位**：哪些组件用了原生 `<select>` / `<option>`
+
+**解决方案**：将原生 `<select>` 替换为**自定义下拉组件**。
+
+### 实现方式（NoteEditor.tsx 示例）
+
+```tsx
+import { useState, useRef, useEffect } from 'react';
+import { ChevronDown } from 'lucide-react';
+
+const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+const categoryRef = useRef<HTMLDivElement>(null);
+
+// 点击外部关闭
+useEffect(() => {
+  const handler = (e: MouseEvent) => {
+    if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+      setCategoryDropdownOpen(false);
+    }
+  };
+  document.addEventListener('mousedown', handler);
+  return () => document.removeEventListener('mousedown', handler);
+}, []);
+
+const selectedCategory = categories.find((c) => c.id === categoryId);
+
+// 自定义触发器 + 下拉面板
+<div ref={categoryRef} className="relative">
+  <button onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}>
+    {selectedCategory ? (
+      <span className="flex items-center gap-1">
+        {(selectedCategory.icon || '').trim().startsWith('/') ? (
+          <img src={selectedCategory.icon!.trim()} className="w-3.5 h-3.5 rounded-full object-cover" />
+        ) : (
+          <span>{selectedCategory.icon}</span>  // emoji
+        )}
+        {selectedCategory.name}
+      </span>
+    ) : '未分类'}
+    <ChevronDown size={12} />
+  </button>
+  {categoryDropdownOpen && (
+    <div className="absolute top-full mt-1 z-50 ...">
+      {categories.map((c) => (
+        <button key={c.id} onClick={() => setCategoryId(c.id)}>
+          {c.icon && (c.icon || '').trim().startsWith('/') ? (
+            <img src={c.icon.trim()} className="w-4 h-4 rounded-full object-cover" />
+          ) : (
+            <span>{c.icon}</span>
+          )}
+          {c.name}
+        </button>
+      ))}
+    </div>
+  )}
+</div>
+```
+
+### 渲染工具函数（可复用）
+
+在 `CategorySidebar.tsx` 等多处需要渲染图标时，统一使用内联判断而非外部工具函数（避免 Next.js HMR 对工具函数新导出不生效）：
+
+```tsx
+function renderIcon(icon: string, size: string = 'w-6 h-6 text-sm') {
+  const v = (icon || '').trim();
+  const isImg = v.startsWith('/') || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(v);
+  if (isImg) {
+    return (
+      <span className={`${size} inline-flex items-center justify-center overflow-hidden rounded-full`}>
+        <img src={v} alt="" className="w-full h-full object-cover"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </span>
+    );
+  }
+  return <span className={size}>{icon}</span>;
+}
+```
+
+### 图片资源规范
+
+- 存放在 `public/icons/<theme>/` 目录
+- 分类图标建议 100×100 ~ 200×200px，圆形裁切
+- 数据库存储路径为 `/icons/<theme>/<name>.jpg`（以 `/` 开头标识为图片）
+- emoji 分类保持原样（如 `🐱` `⭐`）
+
+### 渲染位置汇总（三处统一）
+
+| 位置 | 文件 | 渲染方式 |
+|------|------|----------|
+| 侧边栏分类列表 | `CategorySidebar.tsx` | `renderIcon()` 函数 |
+| 笔记卡片分类标签 | `NoteCard.tsx` | 内联判断 `startsWith('/')` |
+| 笔记详情页分类 | `app/note/[id]/page.tsx` | 内联判断 `startsWith('/')` |
+| 编辑器分类下拉 | `NoteEditor.tsx` | 自定义下拉组件 |
+
+### 常见坑
+
+1. **Next.js HMR 不刷新工具函数**：新增到 `lib/utils.ts` 的导出函数，前端 HMR 有时不生效，建议**内联判断**或**重启 dev server**
+2. **原生 `<select>` 无法嵌入 `<img>`**：必须用自定义组件
+3. **数据库 icon 值含空格**：存/取时都要 `trim()`
+4. **图片路径错误**：用 `onError` 回调隐藏破图，避免布局错乱
+5. **侧边栏列表图片被撑大**：容器必须加 `w-5 h-5 overflow-hidden rounded-full`，`<img>` 加 `w-full h-full object-cover`
+
+## 21. Token 消耗过多的原因与优化方案
+
+**问题**：在使用 AI 生成功能（如批量图片生成）时，token 消耗异常大。
+
+**原因分析**：
+
+1. **对话上下文累积**：
+   - 每轮对话都会携带完整的历史消息（包括代码读取、编辑、工具调用结果）
+   - 多轮迭代修改（如修复图标显示、调试下拉组件）会导致上下文越来越长
+   - 解决方案：**任务完成后开新对话**，让新任务有干净的上下文
+
+2. **批量操作过多**：
+   - 一次性批量生成 7+ 张图片 / 调用多个工具
+   - 解决方案：**分批处理**，每批 3-4 个，分多轮完成
+
+3. **Prompt 描述过于详细**：
+   - 每张图片的 prompt 写了 150+ 字符，包含冗余描述
+   - 解决方案：**简化 prompt**，只写核心特征
+
+**优化建议**：
+
+| 优化项 | 说明 | 示例 |
+|--------|------|------|
+| **减少批量数量** | 每批 3-4 张，分多轮生成 | 火影 6 张图标 → 分 2 轮，每轮 3 张 |
+| **简化 prompt** | 只写核心特征，去掉冗余词 | 去掉 "clean style, high quality" 等 |
+| **开新对话** | 任务完成后立即开新对话 | 图标完成 → 新建对话处理下一个功能 |
+| **SVG 替代** | 简约图标用 SVG 代码生成，零 token 消耗 | 分类小图标改用内联 SVG |
+
+**触发警告**：当遇到以下情况时，应提示用户开新对话：
+- 对话历史超过 10 轮
+- 单次任务涉及 5+ 个文件的修改
+- 批量生成超过 5 张图片
+- 执行大型重构任务
+
+**示例 Prompt 优化**：
+
+```xml
+<!-- 之前（冗余） -->
+"Naruto anime character icon: Kurama the Nine-Tailed Fox minimalist circular avatar. Orange-red fur with dark stripes, nine flowing tails behind, glowing golden eyes, fierce expression, chakra energy aura, head and upper body only, white background, clean vector style, high quality"
+
+<!-- 之后（精简） -->
+"Kurama nine-tailed fox circular avatar, orange-red fur, golden eyes, white background"
+```
+
+## 22. AI 绘图工具选择指南
+
+### 何时使用 GenerateImage（Seedream）
+
+**适用场景**：
+- 需要生成人物插画、艺术风格图标
+- 要求高保真度（如火影人物特征还原）
+- 需要复杂的光影、色彩效果
+- 一次性生成 1-3 张图片
+
+**特点**：
+- 生成质量高，适合艺术作品
+- 支持 square_hd（1024x1024）高清输出
+- 消耗 token 较多，建议单次不超过 4 张
+
+### 何时选择 SVG 方案
+
+**适用场景**：
+- 简约几何图标（圆形、线条、色块）
+- 需要无限缩放不失真
+- 加载速度要求高
+- 需要动态修改颜色/大小
+
+**优点**：
+- 零 token 消耗
+- 加载快（矢量图）
+- 可通过 CSS 动态调整样式
+- 可通过代码批量生成
+
+### 混合使用策略
+
+1. **人物/动物头像** → 用 GenerateImage（Seedream）
+2. **装饰性小图标** → 用 SVG 或 emoji
+3. **需要频繁更新的图标** → 用 SVG（便于代码修改）
+
+**最后更新**：2026-08-16

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { parseJsonArray, stringifyJsonArray, generateSummary } from '@/lib/utils';
+import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 type SortBy = 'createdAt' | 'updatedAt' | 'custom';
-type Scope = 'all' | 'favorite' | 'important' | 'category';
+type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
 
 /**
  * GET /api/notes
@@ -30,6 +31,9 @@ export async function GET(req: NextRequest) {
   const favorite = searchParams.get('favorite') === 'true';
   const tag = searchParams.get('tag') || undefined;
   const importanceParam = searchParams.get('importance')?.trim();
+  const liked = searchParams.get('liked') === 'true';
+  const reposted = searchParams.get('reposted') === 'true';
+  const veryImportant = searchParams.get('veryImportant') === 'true';
   const sortBy = (searchParams.get('sortBy') as SortBy) || 'createdAt';
   const scope = (searchParams.get('scope') as Scope) || 'all';
   const startDate = searchParams.get('startDate');
@@ -51,6 +55,15 @@ export async function GET(req: NextRequest) {
   if (favorite) where.isFavorite = true;
   if (tag) {
     where.tags = { contains: `"${tag}"` };
+  }
+  if (liked) {
+    where.likes = { some: {} };
+  }
+  if (reposted) {
+    where.repostOfId = { not: null };
+  }
+  if (veryImportant) {
+    where.importance = 'very_important';
   }
   if (importanceParam) {
     const values = importanceParam
@@ -77,14 +90,40 @@ export async function GET(req: NextRequest) {
     if (endDate) where.createdAt.lte = parseLocalDate(endDate, true);
   }
 
+  // scope 筛选：重要/极重要视图按 importance 字段过滤
+  if (scope === 'important') {
+    where.importance = 'important';
+  } else if (scope === 'veryImportant') {
+    where.importance = 'very_important';
+  } else if (scope === 'allPinned') {
+    // 全局置顶：所有视图中被置顶的笔记（OR 所有置顶字段）
+    where.OR = [
+      { pinnedGlobal: true },
+      { pinnedFavorite: true },
+      { pinnedImportant: true },
+      { pinnedVeryImportant: true },
+      { pinnedCategory: true },
+      { pinnedLiked: true },
+      { pinnedReposted: true },
+    ];
+  }
+
   const orderField =
     sortBy === 'custom'
       ? scope === 'favorite'
         ? 'favoriteOrder'
         : scope === 'important'
         ? 'importantOrder'
+        : scope === 'veryImportant'
+        ? 'importantOrder'
         : scope === 'category'
         ? 'categoryOrder'
+        : scope === 'liked'
+        ? 'likedPinOrder'
+        : scope === 'reposted'
+        ? 'repostedPinOrder'
+        : scope === 'allPinned'
+        ? 'globalPinOrder'
         : 'globalOrder'
       : sortBy;
 
@@ -93,8 +132,16 @@ export async function GET(req: NextRequest) {
       ? 'pinnedFavorite'
       : scope === 'important'
       ? 'pinnedImportant'
+      : scope === 'veryImportant'
+      ? 'pinnedVeryImportant'
       : scope === 'category'
       ? 'pinnedCategory'
+      : scope === 'liked'
+      ? 'pinnedLiked'
+      : scope === 'reposted'
+      ? 'pinnedReposted'
+      : scope === 'allPinned'
+      ? 'pinnedGlobal'
       : 'pinnedGlobal';
 
   const pinOrderField =
@@ -102,8 +149,16 @@ export async function GET(req: NextRequest) {
       ? 'favoritePinOrder'
       : scope === 'important'
       ? 'importantPinOrder'
+      : scope === 'veryImportant'
+      ? 'veryImportantPinOrder'
       : scope === 'category'
       ? 'categoryPinOrder'
+      : scope === 'liked'
+      ? 'likedPinOrder'
+      : scope === 'reposted'
+      ? 'repostedPinOrder'
+      : scope === 'allPinned'
+      ? 'globalPinOrder'
       : 'globalPinOrder';
 
   const notes = await prisma.note.findMany({
@@ -127,6 +182,11 @@ export async function GET(req: NextRequest) {
 
   const total = await prisma.note.count({ where });
 
+  // allPinned 视图：检查是否在任意视图中被置顶
+  const isAnyPinned = (n: any) =>
+    n.pinnedGlobal || n.pinnedFavorite || n.pinnedImportant ||
+    n.pinnedVeryImportant || n.pinnedCategory || n.pinnedLiked || n.pinnedReposted;
+
   const data: NoteDTO[] = notes.map((n: any) => ({
     id: n.id,
     content: n.content,
@@ -141,20 +201,27 @@ export async function GET(req: NextRequest) {
           color: n.category.color,
           icon: n.category.icon,
           order: n.category.order,
+          pinned: n.category.pinned,
           createdAt: n.category.createdAt.toISOString(),
         }
       : null,
     isFavorite: n.isFavorite,
     importance: (n.importance as 'important' | 'very_important' | null) || null,
-    pinned: n[pinnedField],
+    pinned: scope === 'allPinned' ? isAnyPinned(n) : n[pinnedField],
     pinnedGlobal: n.pinnedGlobal,
     pinnedFavorite: n.pinnedFavorite,
     pinnedImportant: n.pinnedImportant,
+    pinnedVeryImportant: n.pinnedVeryImportant,
     pinnedCategory: n.pinnedCategory,
+    pinnedLiked: n.pinnedLiked,
+    pinnedReposted: n.pinnedReposted,
     globalPinOrder: n.globalPinOrder,
     favoritePinOrder: n.favoritePinOrder,
     importantPinOrder: n.importantPinOrder,
+    veryImportantPinOrder: n.veryImportantPinOrder,
     categoryPinOrder: n.categoryPinOrder,
+    likedPinOrder: n.likedPinOrder,
+    repostedPinOrder: n.repostedPinOrder,
     globalOrder: n.globalOrder,
     favoriteOrder: n.favoriteOrder,
     importantOrder: n.importantOrder,
@@ -174,20 +241,27 @@ export async function GET(req: NextRequest) {
                 color: n.repostOf.category.color,
                 icon: n.repostOf.category.icon,
                 order: n.repostOf.category.order,
+                pinned: n.repostOf.category.pinned,
                 createdAt: n.repostOf.category.createdAt.toISOString(),
               }
             : null,
           isFavorite: n.repostOf.isFavorite,
           importance: (n.repostOf.importance as 'important' | 'very_important' | null) || null,
-          pinned: n.repostOf[pinnedField],
+          pinned: scope === 'allPinned' ? isAnyPinned(n.repostOf) : n.repostOf[pinnedField],
           pinnedGlobal: n.repostOf.pinnedGlobal,
           pinnedFavorite: n.repostOf.pinnedFavorite,
           pinnedImportant: n.repostOf.pinnedImportant,
+          pinnedVeryImportant: n.repostOf.pinnedVeryImportant,
           pinnedCategory: n.repostOf.pinnedCategory,
+          pinnedLiked: n.repostOf.pinnedLiked,
+          pinnedReposted: n.repostOf.pinnedReposted,
           globalPinOrder: n.repostOf.globalPinOrder,
           favoritePinOrder: n.repostOf.favoritePinOrder,
           importantPinOrder: n.repostOf.importantPinOrder,
+          veryImportantPinOrder: n.repostOf.veryImportantPinOrder,
           categoryPinOrder: n.repostOf.categoryPinOrder,
+          likedPinOrder: n.repostOf.likedPinOrder,
+          repostedPinOrder: n.repostOf.repostedPinOrder,
           globalOrder: n.repostOf.globalOrder,
           favoriteOrder: n.repostOf.favoriteOrder,
           importantOrder: n.repostOf.importantOrder,
@@ -252,11 +326,17 @@ export async function POST(req: NextRequest) {
       pinnedGlobal: false,
       pinnedFavorite: false,
       pinnedImportant: false,
+      pinnedVeryImportant: false,
       pinnedCategory: false,
+      pinnedLiked: false,
+      pinnedReposted: false,
       globalPinOrder: 0,
       favoritePinOrder: 0,
       importantPinOrder: 0,
+      veryImportantPinOrder: 0,
       categoryPinOrder: 0,
+      likedPinOrder: 0,
+      repostedPinOrder: 0,
       globalOrder: newOrder,
       favoriteOrder: newOrder,
       importantOrder: newOrder,
@@ -264,6 +344,9 @@ export async function POST(req: NextRequest) {
     },
     include: { category: true },
   });
+
+  // 同步链接关系
+  await syncNoteLinks(note.id, note.content);
 
   const data: NoteDTO = {
     id: note.id,
@@ -278,6 +361,7 @@ export async function POST(req: NextRequest) {
           color: note.category.color,
           icon: note.category.icon,
           order: note.category.order,
+          pinned: note.category.pinned,
           createdAt: note.category.createdAt.toISOString(),
         }
       : null,
@@ -287,11 +371,17 @@ export async function POST(req: NextRequest) {
     pinnedGlobal: note.pinnedGlobal,
     pinnedFavorite: note.pinnedFavorite,
     pinnedImportant: note.pinnedImportant,
+    pinnedVeryImportant: note.pinnedVeryImportant,
     pinnedCategory: note.pinnedCategory,
+    pinnedLiked: note.pinnedLiked,
+    pinnedReposted: note.pinnedReposted,
     globalPinOrder: note.globalPinOrder,
     favoritePinOrder: note.favoritePinOrder,
     importantPinOrder: note.importantPinOrder,
+    veryImportantPinOrder: note.veryImportantPinOrder,
     categoryPinOrder: note.categoryPinOrder,
+    likedPinOrder: note.likedPinOrder,
+    repostedPinOrder: note.repostedPinOrder,
     globalOrder: note.globalOrder,
     favoriteOrder: note.favoriteOrder,
     importantOrder: note.importantOrder,

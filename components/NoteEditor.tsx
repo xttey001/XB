@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { ImagePlus, Tag, X, Loader2, Folder, Flag } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { ImagePlus, Tag, X, Loader2, Folder, Flag, ChevronDown } from 'lucide-react';
 import ImageUploader from './ImageUploader';
 import TiptapEditor from './TiptapEditor';
 import { api } from '@/lib/api';
@@ -45,6 +45,20 @@ export default function NoteEditor({
   );
   const [saving, setSaving] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const categoryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+        setCategoryDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selectedCategory = categories.find((c) => c.id === categoryId);
 
   // Tiptap 空内容默认为 <p></p>，保存时归一化为空字符串
   const normalizedContent = isEmptyHtml(content) ? '' : content;
@@ -169,21 +183,59 @@ export default function NoteEditor({
           </button>
 
           {/* 分类选择 */}
-          <div className="flex items-center gap-1 ml-1">
+          <div className="flex items-center gap-1 ml-1 relative" ref={categoryRef}>
             <Folder size={14} className="text-ink-400" />
-            <select
-              value={categoryId || ''}
-              onChange={(e) => setCategoryId(e.target.value || null)}
-              className="text-xs text-ink-700 bg-transparent border-0 focus:outline-none cursor-pointer"
+            <button
+              type="button"
+              onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
+              className="text-xs text-ink-700 bg-transparent border-0 focus:outline-none cursor-pointer flex items-center gap-1 hover:text-ink-900"
             >
-              <option value="">未分类</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon ? `${c.icon} ` : ''}
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              {selectedCategory ? (
+                <span className="flex items-center gap-1">
+                  {(selectedCategory.icon || '').trim().startsWith('/') ? (
+                    <img src={selectedCategory.icon!.trim()} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
+                  ) : (
+                    <span>{selectedCategory.icon}</span>
+                  )}
+                  {selectedCategory.name}
+                </span>
+              ) : (
+                '未分类'
+              )}
+              <ChevronDown size={12} className={cn('transition-transform', categoryDropdownOpen && 'rotate-180')} />
+            </button>
+            {categoryDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-ink-200 rounded-lg shadow-lg py-1 min-w-[160px] max-h-[280px] overflow-y-auto">
+                <button
+                  type="button"
+                  onClick={() => { setCategoryId(null); setCategoryDropdownOpen(false); }}
+                  className={cn(
+                    'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
+                    !categoryId && 'bg-ink-50 text-ink-900'
+                  )}
+                >
+                  未分类
+                </button>
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => { setCategoryId(c.id); setCategoryDropdownOpen(false); }}
+                    className={cn(
+                      'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
+                      categoryId === c.id && 'bg-ink-50 text-ink-900'
+                    )}
+                  >
+                    {c.icon && (c.icon || '').trim().startsWith('/') ? (
+                      <img src={c.icon.trim()} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                    ) : (
+                      <span className="flex-shrink-0">{c.icon}</span>
+                    )}
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 重要等级选择 */}

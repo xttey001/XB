@@ -34,12 +34,18 @@ export interface NoteDTO {
   pinnedGlobal: boolean;
   pinnedFavorite: boolean;
   pinnedImportant: boolean;
+  pinnedVeryImportant: boolean;
   pinnedCategory: boolean;
+  pinnedLiked: boolean;
+  pinnedReposted: boolean;
   /** 各视图独立置顶排序 */
   globalPinOrder: number;
   favoritePinOrder: number;
   importantPinOrder: number;
+  veryImportantPinOrder: number;
   categoryPinOrder: number;
+  likedPinOrder: number;
+  repostedPinOrder: number;
   /** 各视图独立自定义排序 */
   globalOrder: number;
   favoriteOrder: number;
@@ -79,9 +85,11 @@ export interface NoteInput {
   /** 重要等级：important / very_important，传 null 表示取消 */
   importance?: NoteImportance | null;
   /** 置顶操作所在的视图范围，后端据此更新对应置顶字段 */
-  scope?: 'all' | 'favorite' | 'important' | 'category';
+  scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
   pinned?: boolean;
   pinOrder?: number;
+  /** 强制置顶到顶部（用于 allPinned 视图） */
+  forcePinToTop?: boolean;
 }
 
 /** 批量调序请求 */
@@ -91,7 +99,7 @@ export interface ReorderItem {
 }
 
 export interface NoteReorderInput {
-  scope: 'all' | 'favorite' | 'important' | 'category';
+  scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
   items: ReorderItem[];
   /** 同时更新置顶状态时使用 */
   pinUpdates?: Array<{ id: string; pinned: boolean; pinOrder: number }>;

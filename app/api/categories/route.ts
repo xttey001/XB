@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       color: category.color,
       icon: category.icon,
       order: category.order,
+      pinned: category.pinned,
       createdAt: category.createdAt.toISOString(),
     };
     return NextResponse.json({ category: data }, { status: 201 });

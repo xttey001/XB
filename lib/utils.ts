@@ -90,6 +90,13 @@ export function generateSafeFileName(originalName: string): string {
   return `${timestamp}-${random}.${ext}`;
 }
 
+/** 判断 icon 值是否为图片路径（用于分类图标等） */
+export function isImageIcon(icon: string | null | undefined): boolean {
+  if (!icon) return false;
+  const v = icon.trim();
+  return v.startsWith('/') || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(v) || v.startsWith('http');
+}
+
 /** 按年月分目录存储，避免单目录文件过多 */
 export function getMonthSubdir(): string {
   const now = new Date();

@@ -27,6 +27,7 @@ import RichTextRenderer from '@/components/RichTextRenderer';
 import ImageLightbox from '@/components/ImageLightbox';
 import ImportanceBadge from '@/components/ImportanceBadge';
 import ImportanceButton from '@/components/ImportanceButton';
+import RelatedNotes from '@/components/RelatedNotes';
 import type { NoteImportance } from '@/lib/types';
 
 export default function NoteDetailPage() {
@@ -251,7 +252,17 @@ export default function NoteDetailPage() {
                   color: note.category.color,
                 }}
               >
-                {note.category.icon && <span>{note.category.icon}</span>}
+                {note.category.icon && (
+                (note.category.icon || '').trim().startsWith('/') ? (
+                  <img
+                    src={note.category.icon.trim()}
+                    alt=""
+                    className="w-3.5 h-3.5 rounded-full object-cover inline-block align-middle"
+                  />
+                ) : (
+                  <span>{note.category.icon}</span>
+                )
+              )}
                 {note.category.name}
               </span>
             )}
@@ -339,6 +350,9 @@ export default function NoteDetailPage() {
           <div className="mt-5">
             <NoteSocial note={note} onUpdate={setNote} defaultOpenComments />
           </div>
+
+          {/* 相关笔记 */}
+          <RelatedNotes noteId={note.id} />
         </article>
       </main>
 

@@ -23,16 +23,22 @@ model Note {
   importance  String?
 
   // 置顶：各视图独立维护置顶状态
-  pinnedGlobal      Boolean   @default(false)
-  pinnedFavorite    Boolean   @default(false)
-  pinnedImportant   Boolean   @default(false)
-  pinnedCategory    Boolean   @default(false)
+  pinnedGlobal        Boolean   @default(false)
+  pinnedFavorite      Boolean   @default(false)
+  pinnedImportant     Boolean   @default(false)
+  pinnedVeryImportant Boolean   @default(false)
+  pinnedCategory      Boolean   @default(false)
+  pinnedLiked         Boolean   @default(false)
+  pinnedReposted      Boolean   @default(false)
 
   // 置顶排序：各视图独立维护，避免跨视图互相干扰
-  globalPinOrder    Int   @default(0)
-  favoritePinOrder  Int   @default(0)
-  importantPinOrder Int   @default(0)
-  categoryPinOrder  Int   @default(0)
+  globalPinOrder        Int   @default(0)
+  favoritePinOrder      Int   @default(0)
+  importantPinOrder     Int   @default(0)
+  veryImportantPinOrder Int   @default(0)
+  categoryPinOrder      Int   @default(0)
+  likedPinOrder         Int   @default(0)
+  repostedPinOrder      Int   @default(0)
 
   // 自定义排序：各列表独立维护
   // - globalOrder:    "全部笔记"列表的排序
@@ -55,6 +61,9 @@ model Note {
   likes       Like[]
   comments    Comment[]
 
+  outgoingLinks   NoteLink[] @relation("NoteLinkSource")
+  incomingLinks   NoteLink[] @relation("NoteLinkTarget")
+
   @@index([categoryId])
   @@index([createdAt])
   @@index([updatedAt])
@@ -62,7 +71,10 @@ model Note {
   @@index([pinnedGlobal])
   @@index([pinnedFavorite])
   @@index([pinnedImportant])
+  @@index([pinnedVeryImportant])
   @@index([pinnedCategory])
+  @@index([pinnedLiked])
+  @@index([pinnedReposted])
   @@index([repostOfId])
 }
 
@@ -89,6 +101,19 @@ model Comment {
 
   @@index([noteId])
   @@index([parentId])
+}
+
+model NoteLink {
+  id        String   @id @default(cuid())
+  sourceId  String   // 来源笔记（谁在链接）
+  targetId  String   // 目标笔记（被链接的）
+  source    Note     @relation("NoteLinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target    Note     @relation("NoteLinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([sourceId, targetId])
+  @@index([sourceId])
+  @@index([targetId])
 }
 
 model Category {

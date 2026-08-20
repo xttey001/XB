@@ -15,6 +15,8 @@ import {
   ChevronUp,
   ChevronDown,
   Pin,
+  Heart,
+  Repeat,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -22,7 +24,7 @@ import type { CategoryDTO } from '@/lib/types';
 
 interface CategorySidebarProps {
   categories: CategoryDTO[];
-  selected: { type: 'all' | 'favorite' | 'important' | 'category' | 'tag'; id?: string; label?: string };
+  selected: { type: 'all' | 'favorite' | 'important' | 'veryImportant' | 'liked' | 'reposted' | 'category' | 'tag' | 'allPinned'; id?: string; label?: string };
   onSelect: (sel: CategorySidebarProps['selected']) => void;
   onCategoriesChange: () => void;
   /** 外部触发重新加载重要笔记数量（如增删改笔记后递增） */
@@ -35,19 +37,39 @@ const PRESET_COLORS = [
 ];
 
 const PRESET_ICONS = [
-  // 工作 & 文档
-  '📁', '📂', '📄', '📑', '🗂️', '📝', '📋', '📊',
+  // 火影人物 (简约头像)
+  '/icons/naruto/kakashi.jpg', '/icons/naruto/itachi.jpg', '/icons/naruto/naruto.jpg', '/icons/naruto/madara.jpg', '/icons/naruto/pain.jpg', '/icons/naruto/hinata.jpg', '/icons/naruto/minato.jpg', '/icons/naruto/deidara.jpg',
+  // 卡通
+  '🧸', '🍭', '🎈',
+  // 动物
+  '🐶', '🐼', '🐰', '🦁', '🐾', '🦋', '🐧', '🦄', '🐬',
   // 学习 & 思考
   '💡', '📚', '📖', '🔬', '🧠', '🎓',
   // 生活 & 健康
-  '🏠', '🍳', '🛒', '🚗', '✈️', '🏥', '💊',
+  '🏠', '🍳', '🛒', '🚗', '✈️', '🏥', '💊', '🚀', '🏛️',
   // 娱乐 & 创作
   '🎵', '🎮', '🎬', '🎨', '🎉', '⚽',
   // 财务 & 时间
-  '💰', '📈', '📅', '⏰',
+  '💰', '📈', '📅', '⏰', '💵',
   // 标记
-  '⭐', '❤️', '✅', '⚡',
+  '⭐', '❤️', '✅', '⚡', '📢', '🚫', '💯', '⚠️', '❤️‍🩹', '❓',
+  // 自然 & 哲学
+  '☯️', '🌙', '☀️', '🌏', '🌀', '🌈', '💫', '🪐', '🌠', '☄️', '🌌', '❄️', '🌸',
 ];
+
+/** 根据 icon 类型渲染图片或 emoji */
+function renderIcon(icon: string, size: string = 'w-6 h-6 text-sm') {
+  const v = (icon || '').trim();
+  const isImg = v.startsWith('/') || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(v);
+  if (isImg) {
+    return (
+      <span className={`${size} inline-flex items-center justify-center overflow-hidden rounded-full`}>
+        <img src={v} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </span>
+    );
+  }
+  return <span className={size}>{icon}</span>;
+}
 
 export default function CategorySidebar({
   categories,
@@ -59,13 +81,13 @@ export default function CategorySidebar({
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(PRESET_COLORS[1]);
-  const [newIcon, setNewIcon] = useState('📁');
+  const [newIcon, setNewIcon] = useState('🍥');
   const [savingCreate, setSavingCreate] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
-  const [editIcon, setEditIcon] = useState('📁');
+  const [editIcon, setEditIcon] = useState('🍥');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -73,17 +95,119 @@ export default function CategorySidebar({
   const [movingId, setMovingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [importantCount, setImportantCount] = useState<number | null>(null);
+  const [veryImportantCount, setVeryImportantCount] = useState<number | null>(null);
+  const [likedCount, setLikedCount] = useState<number | null>(null);
+  const [repostedCount, setRepostedCount] = useState<number | null>(null);
+  const [allPinnedCount, setAllPinnedCount] = useState<number | null>(null);
+  const [allCount, setAllCount] = useState<number | null>(null);
+  const [favoriteCount, setFavoriteCount] = useState<number | null>(null);
 
-  // 加载重要笔记合并数量（重要 + 极重要）
+  // 加载重要笔记数量（仅 important）
   useEffect(() => {
     let cancelled = false;
     api
-      .listNotes({ importance: 'important,very_important', limit: 1 })
+      .listNotes({ importance: 'important', limit: 1 })
       .then(({ total }) => {
         if (!cancelled) setImportantCount(total);
       })
       .catch(() => {
         if (!cancelled) setImportantCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载极重要笔记数量（仅 very_important）
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ importance: 'very_important', limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setVeryImportantCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setVeryImportantCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载点赞数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ liked: true, limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setLikedCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setLikedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载转发数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ reposted: true, limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setRepostedCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setRepostedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载全局置顶数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ scope: 'allPinned', limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setAllPinnedCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setAllPinnedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载全部笔记数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setAllCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setAllCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  // 加载收藏数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ favorite: true, limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setFavoriteCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setFavoriteCount(null);
       });
     return () => {
       cancelled = true;
@@ -132,7 +256,7 @@ export default function CategorySidebar({
       });
       setNewName('');
       setNewColor(PRESET_COLORS[1]);
-      setNewIcon('📁');
+      setNewIcon('🍥');
       setCreating(false);
       onCategoriesChange();
     } catch (e: any) {
@@ -146,7 +270,7 @@ export default function CategorySidebar({
     setEditingId(c.id);
     setEditName(c.name);
     setEditColor(c.color);
-    setEditIcon(c.icon || '📁');
+    setEditIcon(c.icon || '🍥');
   };
 
   const handleSaveEdit = async () => {
@@ -211,12 +335,21 @@ export default function CategorySidebar({
           onClick={() => onSelect({ type: 'all' })}
           icon={<LayoutList size={15} />}
           label="全部笔记"
+          count={allCount}
+        />
+        <SidebarItem
+          active={selected.type === 'allPinned'}
+          onClick={() => onSelect({ type: 'allPinned' })}
+          icon={<Pin size={15} />}
+          label="置顶"
+          count={allPinnedCount}
         />
         <SidebarItem
           active={selected.type === 'favorite'}
           onClick={() => onSelect({ type: 'favorite' })}
           icon={<Star size={15} />}
           label="收藏"
+          count={favoriteCount}
         />
         <SidebarItem
           active={selected.type === 'important'}
@@ -224,6 +357,27 @@ export default function CategorySidebar({
           icon={<Flag size={15} />}
           label="重要"
           count={importantCount}
+        />
+        <SidebarItem
+          active={selected.type === 'veryImportant'}
+          onClick={() => onSelect({ type: 'veryImportant' })}
+          icon={<Flag size={15} className="text-red-500" />}
+          label="极重要"
+          count={veryImportantCount}
+        />
+        <SidebarItem
+          active={selected.type === 'liked'}
+          onClick={() => onSelect({ type: 'liked' })}
+          icon={<Heart size={15} />}
+          label="点赞"
+          count={likedCount}
+        />
+        <SidebarItem
+          active={selected.type === 'reposted'}
+          onClick={() => onSelect({ type: 'reposted' })}
+          icon={<Repeat size={15} />}
+          label="转发"
+          count={repostedCount}
         />
       </div>
 
@@ -273,11 +427,11 @@ export default function CategorySidebar({
                   key={i}
                   onClick={() => setNewIcon(i)}
                   className={cn(
-                    'w-6 h-6 rounded text-sm',
+                    'w-6 h-6 rounded text-sm flex items-center justify-center',
                     newIcon === i ? 'bg-accent-100' : 'hover:bg-ink-100'
                   )}
                 >
-                  {i}
+                  {renderIcon(i)}
                 </button>
               ))}
             </div>
@@ -348,11 +502,11 @@ export default function CategorySidebar({
                         key={i}
                         onClick={() => setEditIcon(i)}
                         className={cn(
-                          'w-6 h-6 rounded text-sm',
+                          'w-6 h-6 rounded text-sm flex items-center justify-center',
                           editIcon === i ? 'bg-accent-100' : 'hover:bg-ink-100'
                         )}
                       >
-                        {i}
+                        {renderIcon(i)}
                       </button>
                     ))}
                   </div>
@@ -392,7 +546,7 @@ export default function CategorySidebar({
                   onClick={() => onSelect({ type: 'category', id: c.id, label: c.name })}
                   className="flex-1 flex items-center gap-2 px-2 py-1.5 text-sm text-left min-w-0"
                 >
-                  <span className="text-sm flex-shrink-0">{c.icon || '📁'}</span>
+                  {renderIcon(c.icon || '/icons/naruto/kakashi.jpg', 'w-5 h-5 flex-shrink-0')}
                   <span
                     className={cn('truncate font-medium')}
                     style={{ color: c.color }}

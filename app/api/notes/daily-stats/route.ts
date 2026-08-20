@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { prisma } from '@/lib/prisma';
 import type { DailyStatsDTO } from '@/lib/types';
 
-type Scope = 'all' | 'favorite' | 'category';
+type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
 
 /**
  * GET /api/notes/daily-stats
@@ -36,11 +36,30 @@ export async function GET(req: NextRequest) {
 
   if (scope === 'favorite') {
     where.isFavorite = true;
+  } else if (scope === 'important') {
+    where.importance = 'important';
+  } else if (scope === 'veryImportant') {
+    where.importance = 'very_important';
+  } else if (scope === 'liked') {
+    where.likes = { some: {} };
+  } else if (scope === 'reposted') {
+    where.repostOfId = { not: null };
   } else if (scope === 'category') {
     if (!categoryId) {
       return NextResponse.json({ error: 'scope=category 时必须提供 categoryId' }, { status: 400 });
     }
     where.categoryId = categoryId;
+  } else if (scope === 'allPinned') {
+    // 全局置顶：所有视图中被置顶的笔记
+    where.OR = [
+      { pinnedGlobal: true },
+      { pinnedFavorite: true },
+      { pinnedImportant: true },
+      { pinnedVeryImportant: true },
+      { pinnedCategory: true },
+      { pinnedLiked: true },
+      { pinnedReposted: true },
+    ];
   }
 
   const notes = await prisma.note.findMany({

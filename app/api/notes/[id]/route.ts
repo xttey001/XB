@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { parseJsonArray, stringifyJsonArray } from '@/lib/utils';
+import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 interface RouteParams {
   params: { id: string };
 }
 
-function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'category' = 'all'): NoteDTO {
+function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' = 'all'): NoteDTO {
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
       : scope === 'important'
       ? 'pinnedImportant'
+      : scope === 'veryImportant'
+      ? 'pinnedVeryImportant'
       : scope === 'category'
       ? 'pinnedCategory'
+      : scope === 'liked'
+      ? 'pinnedLiked'
+      : scope === 'reposted'
+      ? 'pinnedReposted'
       : 'pinnedGlobal';
+
+  // allPinned 视图：检查是否在任意视图中被置顶
+  const isAnyPinned = (n: any) =>
+    n.pinnedGlobal || n.pinnedFavorite || n.pinnedImportant ||
+    n.pinnedVeryImportant || n.pinnedCategory || n.pinnedLiked || n.pinnedReposted;
 
   return {
     id: note.id,
@@ -30,20 +42,27 @@ function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'category' =
           color: note.category.color,
           icon: note.category.icon,
           order: note.category.order,
+          pinned: note.category.pinned,
           createdAt: note.category.createdAt.toISOString(),
         }
       : null,
     isFavorite: note.isFavorite,
     importance: (note.importance as 'important' | 'very_important' | null) || null,
-    pinned: note[pinnedField],
+    pinned: scope === 'allPinned' ? isAnyPinned(note) : note[pinnedField],
     pinnedGlobal: note.pinnedGlobal,
     pinnedFavorite: note.pinnedFavorite,
     pinnedImportant: note.pinnedImportant,
+    pinnedVeryImportant: note.pinnedVeryImportant,
     pinnedCategory: note.pinnedCategory,
+    pinnedLiked: note.pinnedLiked,
+    pinnedReposted: note.pinnedReposted,
     globalPinOrder: note.globalPinOrder,
     favoritePinOrder: note.favoritePinOrder,
     importantPinOrder: note.importantPinOrder,
+    veryImportantPinOrder: note.veryImportantPinOrder,
     categoryPinOrder: note.categoryPinOrder,
+    likedPinOrder: note.likedPinOrder,
+    repostedPinOrder: note.repostedPinOrder,
     globalOrder: note.globalOrder,
     favoriteOrder: note.favoriteOrder,
     importantOrder: note.importantOrder,
@@ -94,29 +113,92 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   }
 
   // scope 决定更新哪个置顶字段和置顶排序字段
-  const scope: 'all' | 'favorite' | 'important' | 'category' =
+  const scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' =
     body.scope || 'all';
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
       : scope === 'important'
       ? 'pinnedImportant'
+      : scope === 'veryImportant'
+      ? 'pinnedVeryImportant'
       : scope === 'category'
       ? 'pinnedCategory'
+      : scope === 'liked'
+      ? 'pinnedLiked'
+      : scope === 'reposted'
+      ? 'pinnedReposted'
+      : scope === 'allPinned'
+      ? 'pinnedGlobal'
       : 'pinnedGlobal';
   const pinOrderField =
     scope === 'favorite'
       ? 'favoritePinOrder'
       : scope === 'important'
       ? 'importantPinOrder'
+      : scope === 'veryImportant'
+      ? 'veryImportantPinOrder'
       : scope === 'category'
       ? 'categoryPinOrder'
+      : scope === 'liked'
+      ? 'likedPinOrder'
+      : scope === 'reposted'
+      ? 'repostedPinOrder'
+      : scope === 'allPinned'
+      ? 'globalPinOrder'
       : 'globalPinOrder';
 
   // 如果要把笔记设为置顶，且 pinOrder 没传，自动取当前 scope 最大 pinOrder + 1
   let pinOrder = body.pinOrder;
   const currentlyPinnedInScope = (existing as any)[pinnedField];
-  if (body.pinned === true && pinOrder === undefined && !currentlyPinnedInScope) {
+  const forcePinToTop = body.forcePinToTop === true;
+  
+  // allPinned 视图的特殊处理：取消置顶时清除所有视图的置顶状态
+  if (scope === 'allPinned' && body.pinned === false) {
+    const note = await prisma.note.update({
+      where: { id: params.id },
+      data: {
+        ...(body.content !== undefined && { content: body.content.trim() }),
+        ...(body.images !== undefined && {
+          images: stringifyJsonArray(body.images),
+        }),
+        ...(body.tags !== undefined && { tags: stringifyJsonArray(body.tags) }),
+        ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
+        ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
+        ...(body.importance !== undefined && { importance: body.importance }),
+        // 清除所有视图的置顶状态
+        pinnedGlobal: false,
+        pinnedFavorite: false,
+        pinnedImportant: false,
+        pinnedVeryImportant: false,
+        pinnedCategory: false,
+        pinnedLiked: false,
+        pinnedReposted: false,
+        // 重置所有 pinOrder
+        globalPinOrder: 0,
+        favoritePinOrder: 0,
+        importantPinOrder: 0,
+        veryImportantPinOrder: 0,
+        categoryPinOrder: 0,
+        likedPinOrder: 0,
+        repostedPinOrder: 0,
+      },
+      include: { category: true },
+    });
+
+    // 同步链接关系（如果内容有更新）
+    if (body.content !== undefined) {
+      await syncNoteLinks(note.id, note.content);
+    }
+
+    return NextResponse.json({ note: toDTO(note, scope) });
+  }
+  
+  // 强制置顶到顶部：无论当前是否置顶，都将 pinOrder 设置为最大值 + 1
+  if (forcePinToTop) {
+    const maxPin = await prisma.note.aggregate({ _max: { [pinOrderField]: true } });
+    pinOrder = (maxPin._max[pinOrderField] ?? 0) + 1;
+  } else if (body.pinned === true && pinOrder === undefined && !currentlyPinnedInScope) {
     const maxPin = await prisma.note.aggregate({ _max: { [pinOrderField]: true } });
     pinOrder = (maxPin._max[pinOrderField] ?? 0) + 1;
   }
@@ -143,6 +225,11 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     },
     include: { category: true },
   });
+
+  // 同步链接关系（如果内容有更新）
+  if (body.content !== undefined) {
+    await syncNoteLinks(note.id, note.content);
+  }
 
   return NextResponse.json({ note: toDTO(note, scope) });
 }

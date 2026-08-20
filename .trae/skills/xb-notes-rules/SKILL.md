@@ -37,6 +37,13 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
   - API 返回的 `pinned` 字段由当前 `scope` 计算得出。
 - 社交数据为独立表：`Like`（一对一）、`Comment`（支持嵌套 replies）、`Repost`。
 - 分类 `Category` 支持 `color` 与 `icon`，左侧栏文字颜色应使用 `category.color`。
+- **笔记链接（NoteLink）**：实现双向链接功能
+  - 模型字段：`sourceId`（来源笔记）、`targetId`（目标笔记）
+  - 通过 `Note.outgoingLinks` 和 `Note.incomingLinks` 关联
+  - 唯一约束：`@@unique([sourceId, targetId])`
+  - 级联删除：删除笔记时自动删除关联的链接记录
+  - 链接 HTML 格式：`<a href="/note/{id}" class="note-link" data-note-id="{id}">标题</a>`
+  - 工具函数：`lib/link-parser.ts` 中的 `extractLinkedNoteIds()` 和 `syncNoteLinks()`
 
 ## 4. API 设计约定
 
@@ -45,6 +52,11 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
 - 更新置顶时必须传入 `scope`，后端据此更新对应置顶字段。
 - 批量排序使用 `POST /api/notes/reorder`，`scope` 决定更新哪个 `order` 与 `pinned` 字段。
 - API 返回的 DTO 必须与 `lib/types.ts` 中的类型一致。
+- **笔记链接 API**：
+  - `GET /api/notes/search?q=xxx`：搜索笔记（用于编辑器链接对话框），返回 `{ notes: [{ id, title }] }`
+  - `GET /api/notes/[id]/links`：查询笔记的链接关系，返回 `{ outgoing, incoming, relatedByTag }`
+  - 保存笔记时（POST/PUT），后端自动调用 `syncNoteLinks()` 解析 content 中的链接并维护 NoteLink 表
+  - API Client 方法：`api.searchNotes(q)` 和 `api.getNoteLinks(id)`
 
 ## 5. 前端组件约定
 
@@ -52,19 +64,30 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
 - 时间显示优先使用 `lib/utils.ts` 中的 `formatTwitterTime`（如 `下午1:37 · 2026年7月26日`）。
 - 评论/回复时间使用 `formatTwitterTime`，悬停显示完整时间。
 - `NoteSocial` 组件通过 `defaultOpenComments` 控制在详情页默认展开评论。
-- 详情页布局顺序：正文 → 转发引用 → 时间信息 → 社交互动区（点赞/评论/转发）→ 评论区。
+- 详情页布局顺序：正文 → 转发引用 → 时间信息 → 社交互动区（点赞/评论/转发）→ 评论区 → 相关笔记。
+- **笔记链接相关组件**：
+  - `NoteLinkDialog.tsx`：编辑器中点击链接按钮时弹出的笔记搜索对话框，支持防抖搜索和键盘导航
+  - `RelatedNotes.tsx`：详情页底部的相关笔记面板，展示出链、反链、同标签三类关联笔记
+  - `TiptapEditor.tsx`：工具栏新增链接按钮，点击打开 `NoteLinkDialog`，选中后在光标位置插入链接 HTML
 
 ## 6. 样式约定
 
 - 使用 Tailwind CSS，颜色通过 `ink-*` 与 `accent-*` 主题类控制。
 - 左侧栏激活态使用深色背景 `bg-ink-900 text-white`；分类项非激活态使用分类自身颜色。
 - 卡片 hover 效果、过渡动画保持简洁一致。
+- **笔记链接样式**：`.note-link` 类使用虚线边框 + 主题色文字，区别于普通超链接
+  ```css
+  .note-link {
+    @apply text-accent-600 font-medium no-underline border-b border-dashed border-accent-100 hover:border-accent-600 hover:text-accent-700 cursor-pointer transition-colors;
+  }
+  ```
 
 ## 7. 性能与可维护性
 
 - 避免在列表接口中返回大字段全量；必要时使用分页或懒加载。
 - 图片上传后按年月分目录保存，避免单目录文件过多。
 - 新增字段需同步更新 `lib/types.ts`、Prisma schema、所有返回 NoteDTO 的 API 端点。
+- **笔记链接**：新增/修改/删除链接时，`lib/link-parser.ts` 的 `syncNoteLinks()` 通过解析 HTML content 中的 `<a href="/note/...">` 标签自动维护 `NoteLink` 表，无需手动调用。
 - 数据库结构变更后运行 `npx prisma db push`，并用 `scripts/` 下脚本迁移旧数据。
 
 ## 8. 启动与桌面集成约定

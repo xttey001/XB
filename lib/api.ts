@@ -21,7 +21,20 @@ async function request<T>(
 }
 
 export type SortBy = 'createdAt' | 'updatedAt' | 'custom';
-export type Scope = 'all' | 'favorite' | 'important' | 'category';
+export type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
+
+export interface NoteLinkResult {
+  id: string;
+  summary: string;
+  createdAt: string;
+  tags: string[];
+}
+
+export interface NoteLinksResponse {
+  outgoing: NoteLinkResult[];
+  incoming: NoteLinkResult[];
+  relatedByTag: NoteLinkResult[];
+}
 
 export const api = {
   // ===== Notes =====
@@ -31,6 +44,9 @@ export const api = {
     favorite?: boolean;
     tag?: string;
     importance?: string;
+    liked?: boolean;
+    reposted?: boolean;
+    veryImportant?: boolean;
     sortBy?: SortBy;
     scope?: Scope;
     startDate?: string;
@@ -45,6 +61,9 @@ export const api = {
     if (params.favorite) sp.set('favorite', 'true')
     if (params.tag) sp.set('tag', params.tag);
     if (params.importance) sp.set('importance', params.importance);
+    if (params.liked) sp.set('liked', 'true');
+    if (params.reposted) sp.set('reposted', 'true');
+    if (params.veryImportant) sp.set('veryImportant', 'true');
     if (params.sortBy) sp.set('sortBy', params.sortBy);
     if (params.scope) sp.set('scope', params.scope);
     if (params.startDate) sp.set('startDate', params.startDate);
@@ -89,6 +108,14 @@ export const api = {
 
   deleteNote(id: string): Promise<{ success: boolean }> {
     return request(`/api/notes/${id}`, { method: 'DELETE' });
+  },
+
+  searchNotes(q: string): Promise<{ notes: Array<{ id: string; title: string }> }> {
+    return request(`/api/notes/search?q=${encodeURIComponent(q)}`);
+  },
+
+  getNoteLinks(id: string): Promise<NoteLinksResponse> {
+    return request(`/api/notes/${id}/links`);
   },
 
   reorderNotes(input: NoteReorderInput): Promise<{ success: boolean }> {

@@ -24,6 +24,10 @@ type Filter =
   | { type: 'all' }
   | { type: 'favorite' }
   | { type: 'important' }
+  | { type: 'veryImportant' }
+  | { type: 'liked' }
+  | { type: 'reposted' }
+  | { type: 'allPinned' }
   | { type: 'category'; id: string; label: string };
 
 export default function HomePage() {
@@ -50,13 +54,25 @@ export default function HomePage() {
       ? 'favorite'
       : filter.type === 'important'
       ? 'important'
+      : filter.type === 'veryImportant'
+      ? 'veryImportant'
       : filter.type === 'category'
       ? 'category'
+      : filter.type === 'liked'
+      ? 'liked'
+      : filter.type === 'reposted'
+      ? 'reposted'
+      : filter.type === 'allPinned'
+      ? 'allPinned'
       : 'all';
 
-  // 重要筛选同时包含 important 和 very_important
+  // 重要/极重要筛选：按视图分别筛选，不再合并
   const importanceFilter =
-    filter.type === 'important' ? 'important,very_important' : undefined;
+    filter.type === 'important'
+      ? 'important'
+      : filter.type === 'veryImportant'
+      ? 'very_important'
+      : undefined;
 
   const loadCategories = useCallback(async () => {
     try {
@@ -80,7 +96,9 @@ export default function HomePage() {
           offset: currentOffset,
         };
         if (filter.type === 'favorite') params.favorite = true;
-        if (filter.type === 'important') params.importance = importanceFilter;
+        if (filter.type === 'important' || filter.type === 'veryImportant') params.importance = importanceFilter;
+        if (filter.type === 'liked') params.liked = true;
+        if (filter.type === 'reposted') params.reposted = true;
         if (filter.type === 'category') params.categoryId = filter.id;
         if (dateFilter?.type === 'single') {
           params.startDate = dateFilter.date;
@@ -141,7 +159,84 @@ export default function HomePage() {
   };
 
   const handleNoteUpdated = (note: NoteDTO) => {
-    setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    setNotes((prev) => {
+      const updated = prev.map((n) => (n.id === note.id ? note : n));
+      
+      // allPinned 视图中，按 globalPinOrder 降序 + createdAt 降序重新排序
+      if (currentScope === 'allPinned') {
+        return updated.sort((a, b) => {
+          // globalPinOrder 降序（置顶到顶部的排最前）
+          if (b.globalPinOrder !== a.globalPinOrder) {
+            return b.globalPinOrder - a.globalPinOrder;
+          }
+          // createdAt 降序（最新创建的排最前）
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+      }
+      
+      // 其他视图：按 API 相同的排序规则实时排序
+      // 1. 先按对应置顶字段降序
+      // 2. 再按对应 pinOrder 降序
+      // 3. 最后按对应 order 或 createdAt 降序
+      const pinnedFieldMap: Record<string, keyof NoteDTO> = {
+        all: 'pinnedGlobal',
+        favorite: 'pinnedFavorite',
+        important: 'pinnedImportant',
+        veryImportant: 'pinnedVeryImportant',
+        category: 'pinnedCategory',
+        liked: 'pinnedLiked',
+        reposted: 'pinnedReposted',
+      };
+      const pinOrderFieldMap: Record<string, keyof NoteDTO> = {
+        all: 'globalPinOrder',
+        favorite: 'favoritePinOrder',
+        important: 'importantPinOrder',
+        veryImportant: 'veryImportantPinOrder',
+        category: 'categoryPinOrder',
+        liked: 'likedPinOrder',
+        reposted: 'repostedPinOrder',
+      };
+      const orderFieldMap: Record<string, keyof NoteDTO> = {
+        all: 'globalOrder',
+        favorite: 'favoriteOrder',
+        important: 'importantOrder',
+        veryImportant: 'importantOrder',
+        category: 'categoryOrder',
+        liked: 'globalOrder',
+        reposted: 'globalOrder',
+      };
+      
+      const pinnedField = pinnedFieldMap[currentScope];
+      const pinOrderField = pinOrderFieldMap[currentScope];
+      const orderField = orderFieldMap[currentScope];
+      
+      if (pinnedField && pinOrderField && orderField) {
+        return updated.sort((a, b) => {
+          const aPinned = a[pinnedField] as boolean;
+          const bPinned = b[pinnedField] as boolean;
+          if (aPinned !== bPinned) {
+            return bPinned ? 1 : -1;
+          }
+          
+          const aPinOrder = a[pinOrderField] as number;
+          const bPinOrder = b[pinOrderField] as number;
+          if (aPinOrder !== bPinOrder) {
+            return bPinOrder - aPinOrder;
+          }
+          
+          // 按 order 或 createdAt 降序
+          const aOrder = a[orderField] as number;
+          const bOrder = b[orderField] as number;
+          if (aOrder !== undefined && bOrder !== undefined && aOrder !== bOrder) {
+            return bOrder - aOrder;
+          }
+          
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+      }
+      
+      return updated;
+    });
     loadCategories();
     setSidebarRefreshKey((k) => k + 1);
   };
@@ -187,9 +282,12 @@ export default function HomePage() {
   /**
    * 自定义排序模式下的"上移/下移"操作
    * 由于 API 排序是 desc（order 大的在前），上移=增大 order，下移=减小 order
-   * 简化做法：与相邻笔记交换 order 值
+   * 交换相邻笔记的位置和 order 值
    */
   const handleMove = async (noteId: string, direction: 'up' | 'down') => {
+    // liked 和 reposted 视图不支持自定义排序
+    if (currentScope === 'liked' || currentScope === 'reposted') return;
+
     const idx = notes.findIndex((n) => n.id === noteId);
     if (idx < 0) return;
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -198,21 +296,26 @@ export default function HomePage() {
     const a = notes[idx];
     const b = notes[swapIdx];
 
-    // 在前端先交换，让 UI 立即响应
+    // 获取对应的 order 字段
     const orderField =
       currentScope === 'favorite'
         ? 'favoriteOrder'
-        : currentScope === 'important'
+        : currentScope === 'important' || currentScope === 'veryImportant'
         ? 'importantOrder'
         : currentScope === 'category'
         ? 'categoryOrder'
+        : currentScope === 'allPinned'
+        ? 'globalOrder'
         : 'globalOrder';
 
+    // 在前端交换笔记位置和 order 值，让 UI 立即响应
     const newNotes = [...notes];
-    const aOrder = a[orderField];
-    const bOrder = b[orderField];
-    newNotes[idx] = { ...a, [orderField]: bOrder };
-    newNotes[swapIdx] = { ...b, [orderField]: aOrder };
+    const aOrder = (a as any)[orderField];
+    const bOrder = (b as any)[orderField];
+    
+    // 交换笔记位置（将 b 放到 idx 位置，a 放到 swapIdx 位置）
+    newNotes[idx] = { ...b, [orderField]: aOrder };
+    newNotes[swapIdx] = { ...a, [orderField]: bOrder };
     setNotes(newNotes);
 
     // 后端持久化
@@ -233,13 +336,21 @@ export default function HomePage() {
   const title =
     filter.type === 'all'
       ? '全部笔记'
+      : filter.type === 'allPinned'
+      ? '置顶'
       : filter.type === 'favorite'
       ? '收藏'
       : filter.type === 'important'
       ? '重要'
+      : filter.type === 'veryImportant'
+      ? '极重要'
+      : filter.type === 'liked'
+      ? '点赞'
+      : filter.type === 'reposted'
+      ? '转发'
       : filter.label || '分类';
 
-  const showOrderControls = sortBy === 'custom';
+  const showOrderControls = sortBy === 'custom' && currentScope !== 'liked' && currentScope !== 'reposted';
 
   // 统计置顶数量（用于UI分隔提示）
   const pinnedCount = notes.filter((n) => n.pinned).length;
@@ -337,10 +448,18 @@ export default function HomePage() {
             <div className="flex flex-col items-center justify-center py-20 text-ink-400">
               <Inbox size={40} strokeWidth={1.2} />
               <p className="mt-3 text-sm">
-                {filter.type === 'favorite'
+                {filter.type === 'allPinned'
+                  ? '还没有置顶的笔记'
+                  : filter.type === 'favorite'
                   ? '还没有收藏的笔记'
                   : filter.type === 'important'
                   ? '还没有标记为重要的笔记'
+                  : filter.type === 'veryImportant'
+                  ? '还没有标记为极重要的笔记'
+                  : filter.type === 'liked'
+                  ? '还没有点赞的笔记'
+                  : filter.type === 'reposted'
+                  ? '还没有转发的笔记'
                   : filter.type === 'category'
                   ? '这个分类下还没有笔记'
                   : '开始记录你的第一条笔记吧'}

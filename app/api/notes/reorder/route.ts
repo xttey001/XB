@@ -28,8 +28,16 @@ export async function POST(req: NextRequest) {
       ? 'favoriteOrder'
       : body.scope === 'important'
       ? 'importantOrder'
+      : body.scope === 'veryImportant'
+      ? 'importantOrder'
       : body.scope === 'category'
       ? 'categoryOrder'
+      : body.scope === 'liked'
+      ? 'likedPinOrder'
+      : body.scope === 'reposted'
+      ? 'repostedPinOrder'
+      : body.scope === 'allPinned'
+      ? 'globalPinOrder'
       : 'globalOrder';
 
   const pinnedField =
@@ -37,8 +45,16 @@ export async function POST(req: NextRequest) {
       ? 'pinnedFavorite'
       : body.scope === 'important'
       ? 'pinnedImportant'
+      : body.scope === 'veryImportant'
+      ? 'pinnedVeryImportant'
       : body.scope === 'category'
       ? 'pinnedCategory'
+      : body.scope === 'liked'
+      ? 'pinnedLiked'
+      : body.scope === 'reposted'
+      ? 'pinnedReposted'
+      : body.scope === 'allPinned'
+      ? 'pinnedGlobal'
       : 'pinnedGlobal';
 
   const pinOrderField =
@@ -46,8 +62,16 @@ export async function POST(req: NextRequest) {
       ? 'favoritePinOrder'
       : body.scope === 'important'
       ? 'importantPinOrder'
+      : body.scope === 'veryImportant'
+      ? 'veryImportantPinOrder'
       : body.scope === 'category'
       ? 'categoryPinOrder'
+      : body.scope === 'liked'
+      ? 'likedPinOrder'
+      : body.scope === 'reposted'
+      ? 'repostedPinOrder'
+      : body.scope === 'allPinned'
+      ? 'globalPinOrder'
       : 'globalPinOrder';
 
   // 用事务批量更新

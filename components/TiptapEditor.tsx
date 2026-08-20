@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -30,10 +30,12 @@ import {
   AlignLeft,
   AlignCenter,
   Lightbulb,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { cn, isHtmlContent } from '@/lib/utils';
 import ColorPopover, { PRESET_COLORS } from './ColorPopover';
 import Callout from '@/lib/tiptap-callout';
+import NoteLinkDialog from './NoteLinkDialog';
 
 interface TiptapEditorProps {
   value: string;
@@ -94,6 +96,7 @@ export default function TiptapEditor({
   onPasteImage,
 }: TiptapEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -121,7 +124,7 @@ export default function TiptapEditor({
     editorProps: {
       attributes: {
         class:
-          'prose prose-sm max-w-none min-h-[80px] outline-none text-[15px] leading-[1.7] text-ink-800',
+          'prose prose-sm max-w-none min-h-[80px] outline-none text-lg leading-[1.7] text-ink-800',
       },
       handlePaste: (_view, event) => {
         const files = Array.from(event.clipboardData?.files || []);
@@ -143,6 +146,26 @@ export default function TiptapEditor({
       editor.commands.setContent(html, { emitUpdate: false });
     }
   }, [editor, value]);
+
+  // 处理链接笔记选择
+  const handleLinkSelect = useCallback((noteId: string, title: string) => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const selectedText = editor.state.doc.textBetween(from, to);
+
+    // 如果有选中文本，保留选中文本作为链接文字；否则使用笔记标题
+    const linkText = selectedText || title;
+    const linkHtml = `<a href="/note/${noteId}" class="note-link" data-note-id="${noteId}">${linkText}</a>`;
+
+    if (selectedText) {
+      // 替换选中文本为链接
+      editor.chain().focus().deleteSelection().insertContent(linkHtml).run();
+    } else {
+      // 在光标位置插入链接
+      editor.chain().focus().insertContent(linkHtml).run();
+    }
+    setLinkDialogOpen(false);
+  }, [editor]);
 
   if (!editor) {
     return null;
@@ -238,7 +261,23 @@ export default function TiptapEditor({
         >
           <Lightbulb size={15} />
         </ToolbarButton>
+
+        <ToolbarDivider />
+
+        {/* 链接笔记 */}
+        <ToolbarButton
+          onClick={() => setLinkDialogOpen(true)}
+          title="链接笔记"
+        >
+          <LinkIcon size={15} />
+        </ToolbarButton>
       </div>
+
+      <NoteLinkDialog
+        isOpen={linkDialogOpen}
+        onClose={() => setLinkDialogOpen(false)}
+        onSelect={handleLinkSelect}
+      />
 
       <EditorContent editor={editor} />
 
