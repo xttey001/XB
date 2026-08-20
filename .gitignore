@@ -34,6 +34,6 @@ next-env.d.ts
 /prisma/dev.db
 /prisma/migrations/dev.db*
 
-# uploaded images (保留目录但忽略内容)
-/public/uploads/*
-!/public/uploads/.gitkeep
+# uploaded images (保留目录但忽略内容 - 已改为跟踪)
+# /public/uploads/*
+# !/public/uploads/.gitkeep
