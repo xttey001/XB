@@ -27,6 +27,7 @@ import RichTextRenderer from './RichTextRenderer';
 import TwitterImageGrid from './TwitterImageGrid';
 import ImportanceBadge from './ImportanceBadge';
 import ImportanceButton from './ImportanceButton';
+import NoteReviewButton from './NoteReviewButton';
 import type { NoteImportance } from '@/lib/types';
 
 interface NoteCardProps {
@@ -262,7 +263,15 @@ export default function NoteCard({
           >
             {format(new Date(note.createdAt), 'M月d日', { locale: zhCN })}
           </span>
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-0.5">
+          <NoteReviewButton
+            noteId={note.id}
+            reviewAt={note.reviewAt}
+            reviewRepeat={note.reviewRepeat}
+            reviewStep={note.reviewStep}
+            onUpdated={onUpdated}
+          />
+          <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
           {/* 自定义排序模式下的上下移动按钮 */}
           {showOrderControls && onMove && (
             <>
@@ -386,6 +395,7 @@ export default function NoteCard({
           >
             <Trash2 size={14} />
           </button>
+          </div>
           </div>
         </div>
       </div>

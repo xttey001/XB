@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { ImagePlus, Tag, X, Loader2, Folder, Flag, ChevronDown } from 'lucide-react';
+import { ImagePlus, Tag, X, Loader2, Folder, Flag, ChevronDown, Calendar, Clock, Brain } from 'lucide-react';
+import { format, isToday, isTomorrow, isPast } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
 import ImageUploader from './ImageUploader';
 import TiptapEditor from './TiptapEditor';
 import { api } from '@/lib/api';
-import { cn, isEmptyHtml } from '@/lib/utils';
+import { cn, isEmptyHtml, getEbbinghausDays } from '@/lib/utils';
 import { IMPORTANCE_CONFIG } from '@/lib/importance';
 import type { CategoryDTO, NoteDTO, NoteImportance } from '@/lib/types';
 
@@ -43,15 +45,34 @@ export default function NoteEditor({
   const [importance, setImportance] = useState<NoteImportance | null>(
     initialNote?.importance || null
   );
+  const [reviewAt, setReviewAt] = useState<string | null>(
+    initialNote?.reviewAt || null
+  );
+  const [reviewRepeat, setReviewRepeat] = useState<string>(
+    initialNote?.reviewRepeat || 'none'
+  );
+  const [reviewStep, setReviewStep] = useState<number>(
+    initialNote?.reviewStep ?? 0
+  );
+  const [showReviewMenu, setShowReviewMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const [importanceDropdownOpen, setImportanceDropdownOpen] = useState(false);
   const categoryRef = useRef<HTMLDivElement>(null);
+  const importanceRef = useRef<HTMLDivElement>(null);
+  const reviewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
         setCategoryDropdownOpen(false);
+      }
+      if (importanceRef.current && !importanceRef.current.contains(e.target as Node)) {
+        setImportanceDropdownOpen(false);
+      }
+      if (reviewRef.current && !reviewRef.current.contains(e.target as Node)) {
+        setShowReviewMenu(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -59,6 +80,33 @@ export default function NoteEditor({
   }, []);
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
+
+  const QUICK_REVIEW_OPTIONS = [
+    { label: '艾宾浩斯', getDate: () => new Date(Date.now() + 24 * 60 * 60 * 1000), repeat: 'ebbinghaus', step: 0 },
+    { label: '每天', getDate: () => new Date(Date.now() + 24 * 60 * 60 * 1000), repeat: 'daily' },
+    { label: '明天', getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); return d; } },
+    { label: '3 天后', getDate: () => { const d = new Date(); d.setDate(d.getDate() + 3); return d; } },
+    { label: '一周后', getDate: () => { const d = new Date(); d.setDate(d.getDate() + 7); return d; } },
+    { label: '一个月后', getDate: () => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; } },
+  ];
+
+  const REPEAT_OPTIONS = [
+    { label: '不重复', value: 'none' },
+    { label: '艾宾浩斯', value: 'ebbinghaus' },
+    { label: '每天', value: 'daily' },
+    { label: '每周', value: 'weekly' },
+    { label: '每月', value: 'monthly' },
+  ];
+
+  const formatReviewDate = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    if (isToday(date)) return `今天 ${format(date, 'HH:mm', { locale: zhCN })}`;
+    if (isTomorrow(date)) return `明天 ${format(date, 'HH:mm', { locale: zhCN })}`;
+    if (isPast(date)) return `已逾期 ${format(date, 'M月d日', { locale: zhCN })}`;
+    return format(date, 'M月d日 HH:mm', { locale: zhCN });
+  };
+
+  const hasReview = !!reviewAt;
 
   // Tiptap 空内容默认为 <p></p>，保存时归一化为空字符串
   const normalizedContent = isEmptyHtml(content) ? '' : content;
@@ -96,6 +144,9 @@ export default function NoteEditor({
           tags,
           categoryId,
           importance,
+          reviewAt: reviewAt,
+          reviewRepeat: reviewRepeat === 'none' ? null : reviewRepeat,
+          reviewStep: reviewRepeat === 'ebbinghaus' ? reviewStep : 0,
         });
         onSaved(note, true);
       } else {
@@ -105,6 +156,9 @@ export default function NoteEditor({
           tags,
           categoryId,
           importance,
+          reviewAt: reviewAt,
+          reviewRepeat: reviewRepeat === 'none' ? null : reviewRepeat,
+          reviewStep: reviewRepeat === 'ebbinghaus' ? reviewStep : 0,
         });
         onSaved(note, false);
         // 清空表单
@@ -113,6 +167,9 @@ export default function NoteEditor({
         setTags([]);
         setCategoryId(null);
         setImportance(null);
+        setReviewAt(null);
+        setReviewRepeat('none');
+        setReviewStep(0);
       }
     } catch (e: any) {
       alert(e.message || '保存失败');
@@ -239,25 +296,183 @@ export default function NoteEditor({
           </div>
 
           {/* 重要等级选择 */}
-          <div className="flex items-center gap-1 ml-3">
+          <div className="flex items-center gap-1 ml-3 relative" ref={importanceRef}>
             <Flag size={14} className="text-ink-400" />
-            <select
-              value={importance || ''}
-              onChange={(e) =>
-                setImportance(
-                  (e.target.value as NoteImportance) || null
-                )
-              }
-              className="text-xs text-ink-700 bg-transparent border-0 focus:outline-none cursor-pointer"
+            <button
+              type="button"
+              onClick={() => setImportanceDropdownOpen(!importanceDropdownOpen)}
+              className="text-xs text-ink-700 bg-transparent border-0 focus:outline-none cursor-pointer flex items-center gap-1 hover:text-ink-900"
             >
-              <option value="">无</option>
-              <option value="important">
-                🔵 重要
-              </option>
-              <option value="very_important">
-                🩷 极重要
-              </option>
-            </select>
+              {importance ? (
+                <span style={{ color: IMPORTANCE_CONFIG[importance].text }}>
+                  {IMPORTANCE_CONFIG[importance].label}
+                </span>
+              ) : (
+                '无'
+              )}
+              <ChevronDown size={12} className={cn('transition-transform', importanceDropdownOpen && 'rotate-180')} />
+            </button>
+            {importanceDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-ink-200 rounded-lg shadow-lg py-1 min-w-[120px]">
+                <button
+                  type="button"
+                  onClick={() => { setImportance(null); setImportanceDropdownOpen(false); }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-ink-50 transition-colors',
+                    !importance && 'bg-ink-50'
+                  )}
+                >
+                  <span className={cn(
+                    'w-2.5 h-2.5 rounded-full',
+                    !importance ? 'bg-ink-400' : 'border border-ink-300'
+                  )} />
+                  <span>无</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setImportance('important'); setImportanceDropdownOpen(false); }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-ink-50 transition-colors',
+                    importance === 'important' && 'bg-ink-50'
+                  )}
+                >
+                  <span className={cn(
+                    'w-2.5 h-2.5 rounded-full',
+                    importance === 'important' ? 'bg-[#3B82F6]' : 'border border-[#3B82F6]'
+                  )} />
+                  <span>重要</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setImportance('very_important'); setImportanceDropdownOpen(false); }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-ink-50 transition-colors',
+                    importance === 'very_important' && 'bg-ink-50'
+                  )}
+                >
+                  <span className={cn(
+                    'w-2.5 h-2.5 rounded-full',
+                    importance === 'very_important' ? 'bg-[#EC4899]' : 'border border-[#EC4899]'
+                  )} />
+                  <span>极重要</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 回顾提醒 */}
+          <div className="flex items-center gap-1 ml-3 relative" ref={reviewRef}>
+            <button
+              type="button"
+              onClick={() => setShowReviewMenu(!showReviewMenu)}
+              className={cn(
+                'flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors border',
+                hasReview
+                  ? 'text-emerald-600 border-emerald-200 bg-emerald-50 hover:bg-emerald-100'
+                  : 'text-ink-500 border-ink-200 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50'
+              )}
+              title={hasReview ? `回顾：${formatReviewDate(reviewAt!)}` : '设置回顾提醒'}
+            >
+              {hasReview ? (
+                <Calendar size={13} className="text-emerald-600" />
+              ) : (
+                <Clock size={13} />
+              )}
+              {hasReview ? (
+                <span className="font-medium">回顾</span>
+              ) : (
+                <span>回顾</span>
+              )}
+            </button>
+            {showReviewMenu && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-ink-200 rounded-lg shadow-lg py-1.5 min-w-[180px]">
+                {hasReview && (
+                  <div className="px-3 py-1.5 text-xs text-emerald-600 font-medium bg-emerald-50 rounded mx-1 mb-1">
+                    {reviewRepeat === 'ebbinghaus'
+                      ? `遗忘曲线第${reviewStep + 1}步：${getEbbinghausDays(reviewStep)}天后`
+                      : `当前：${formatReviewDate(reviewAt!)}`
+                    }
+                  </div>
+                )}
+                <div className="text-[10px] text-ink-400 px-3 py-0.5">快速设置</div>
+                {QUICK_REVIEW_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => {
+                      const d = opt.getDate();
+                      setReviewAt(d.toISOString());
+                      if (opt.repeat) setReviewRepeat(opt.repeat);
+                      if (opt.repeat === 'ebbinghaus') setReviewStep(opt.step ?? 0);
+                      setShowReviewMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-ink-700 hover:bg-ink-50 rounded flex items-center justify-between"
+                  >
+                    <span>{opt.label}</span>
+                    {opt.repeat === 'ebbinghaus' && <Brain size={11} className="text-violet-500" />}
+                    {opt.repeat === 'daily' && <span className="text-emerald-500">🔁</span>}
+                  </button>
+                ))}
+                <div className="border-t border-ink-100 my-1" />
+                <div className="px-3 py-1">
+                  <div className="text-[10px] text-ink-400 mb-1">自定义时间</div>
+                  <input
+                    type="datetime-local"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setReviewAt(new Date(e.target.value).toISOString());
+                      }
+                    }}
+                    className="w-full text-xs px-2 py-1 border border-ink-200 rounded focus:outline-none focus:border-emerald-400"
+                  />
+                </div>
+                <div className="border-t border-ink-100 my-1" />
+                <div className="text-[10px] text-ink-400 px-3 py-0.5">重复频率</div>
+                <div className="flex flex-wrap gap-1 px-3 py-1">
+                  {REPEAT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setReviewRepeat(opt.value);
+                        if (opt.value === 'ebbinghaus') {
+                          setReviewStep(0);
+                          if (!hasReview) {
+                            const d = new Date(Date.now() + getEbbinghausDays(0) * 24 * 60 * 60 * 1000);
+                            setReviewAt(d.toISOString());
+                          }
+                        }
+                      }}
+                      className={cn(
+                        'text-[10px] px-1.5 py-0.5 rounded',
+                        reviewRepeat === opt.value
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-ink-100 text-ink-600 hover:bg-ink-200'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {hasReview && (
+                  <div className="border-t border-ink-100 my-1" />
+                )}
+                {hasReview && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewAt(null);
+                      setReviewRepeat('none');
+                      setReviewStep(0);
+                      setShowReviewMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded"
+                  >
+                    清除回顾提醒
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

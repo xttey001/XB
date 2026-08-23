@@ -71,6 +71,10 @@ function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'veryImporta
     repostOf: note.repostOf ? toDTO(note.repostOf, scope) : null,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
+    reviewAt: note.reviewAt?.toISOString() || null,
+    reviewRepeat: note.reviewRepeat || null,
+    reviewStep: note.reviewStep ?? 0,
+    reviewLastSent: note.reviewLastSent?.toISOString() || null,
   };
 }
 
@@ -182,6 +186,18 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         categoryPinOrder: 0,
         likedPinOrder: 0,
         repostedPinOrder: 0,
+        ...(body.reviewAt !== undefined && {
+          reviewAt: body.reviewAt ? new Date(body.reviewAt) : null,
+        }),
+        ...(body.reviewRepeat !== undefined && {
+          reviewRepeat: body.reviewRepeat || null,
+        }),
+        ...(body.reviewStep !== undefined && {
+          reviewStep: body.reviewStep,
+        }),
+        ...(body.reviewLastSent !== undefined && {
+          reviewLastSent: body.reviewLastSent ? new Date(body.reviewLastSent) : null,
+        }),
       },
       include: { category: true },
     });
@@ -222,6 +238,18 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         [pinnedField]: body.pinned,
       }),
       ...(pinOrder !== undefined && { [pinOrderField]: pinOrder }),
+      ...(body.reviewAt !== undefined && {
+        reviewAt: body.reviewAt ? new Date(body.reviewAt) : null,
+      }),
+      ...(body.reviewRepeat !== undefined && {
+        reviewRepeat: body.reviewRepeat || null,
+      }),
+      ...(body.reviewStep !== undefined && {
+        reviewStep: body.reviewStep,
+      }),
+      ...(body.reviewLastSent !== undefined && {
+        reviewLastSent: body.reviewLastSent ? new Date(body.reviewLastSent) : null,
+      }),
     },
     include: { category: true },
   });

@@ -50,6 +50,10 @@ function toNoteDTO(n: any): NoteDTO {
     repostOf: n.repostOf ? toNoteDTO(n.repostOf) : null,
     createdAt: n.createdAt.toISOString(),
     updatedAt: n.updatedAt.toISOString(),
+    reviewAt: n.reviewAt?.toISOString() || null,
+    reviewRepeat: n.reviewRepeat || null,
+    reviewStep: n.reviewStep ?? 0,
+    reviewLastSent: n.reviewLastSent?.toISOString() || null,
   };
 }
 

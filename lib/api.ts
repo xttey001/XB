@@ -1,6 +1,6 @@
 'use client';
 
-import type { NoteDTO, NoteInput, CategoryDTO, NoteReorderInput, CategoryReorderInput, DailyStatsDTO } from '@/lib/types';
+import type { NoteDTO, NoteInput, CategoryDTO, NoteReorderInput, CategoryReorderInput, DailyStatsDTO, ReminderDTO, ReminderInput, ReminderUpdateInput } from '@/lib/types';
 
 async function request<T>(
   url: string,
@@ -13,9 +13,22 @@ async function request<T>(
       ...(options?.headers || {}),
     },
   });
-  const data = await res.json();
+
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { error: text || '响应解析失败' };
+  }
+
   if (!res.ok) {
-    throw new Error((data as any).error || '请求失败');
+    const serverError = (data as any)?.error;
+    if (serverError) {
+      throw new Error(serverError);
+    }
+    const statusText = res.status === 400 ? '请求参数错误' : res.status === 404 ? '资源不存在' : res.status >= 500 ? '服务器错误' : `请求失败(${res.status})`;
+    throw new Error(statusText);
   }
   return data as T;
 }
@@ -52,6 +65,7 @@ export const api = {
     startDate?: string;
     endDate?: string;
     withSocial?: boolean;
+    reviewDue?: boolean;
     limit?: number;
     offset?: number;
   } = {}): Promise<{ notes: NoteDTO[]; total: number; hasMore: boolean }> {
@@ -69,6 +83,7 @@ export const api = {
     if (params.startDate) sp.set('startDate', params.startDate);
     if (params.endDate) sp.set('endDate', params.endDate);
     if (params.withSocial) sp.set('withSocial', 'true');
+    if (params.reviewDue) sp.set('reviewDue', 'true');
     if (params.limit !== undefined) sp.set('limit', String(params.limit));
     if (params.offset !== undefined) sp.set('offset', String(params.offset));
     const qs = sp.toString();
@@ -221,6 +236,45 @@ export const api = {
     return request(`/api/notes/${noteId}/reposts`, {
       method: 'POST',
       body: JSON.stringify({ content, images }),
+    });
+  },
+
+  // ===== Reminders =====
+  listReminders(status?: 'all' | 'pending' | 'completed'): Promise<{ reminders: ReminderDTO[] }> {
+    const qs = status ? `?status=${status}` : '';
+    return request(`/api/reminders${qs}`);
+  },
+
+  createReminder(input: ReminderInput): Promise<{ reminder: ReminderDTO }> {
+    return request('/api/reminders', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  updateReminder(id: string, input: ReminderUpdateInput): Promise<{ reminder: ReminderDTO }> {
+    return request(`/api/reminders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+
+  deleteReminder(id: string): Promise<{ success: boolean }> {
+    return request(`/api/reminders/${id}`, { method: 'DELETE' });
+  },
+
+  completeReminder(id: string): Promise<{ reminder: ReminderDTO }> {
+    return request(`/api/reminders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isCompleted: true }),
+    });
+  },
+
+  snoozeReminder(id: string, minutes: number): Promise<{ reminder: ReminderDTO }> {
+    const snoozeUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+    return request(`/api/reminders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ snoozeUntil }),
     });
   },
 };

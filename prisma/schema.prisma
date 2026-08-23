@@ -53,6 +53,12 @@ model Note {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // 回顾提醒：定期回顾这条笔记
+  reviewAt       DateTime?  // 下次回顾时间
+  reviewRepeat   String?    // 重复频率：none / daily / weekly / biweekly / monthly / ebbinghaus
+  reviewStep     Int        @default(0)  // 遗忘曲线当前步骤 (0-4)：1天→3天→7天→14天→30天
+  reviewLastSent DateTime?  // 上次发送回顾提醒的时间，避免重复弹出
+
   // 转发：指向被转发的原笔记
   repostOfId  String?
   repostOf    Note?     @relation("NoteReposts", fields: [repostOfId], references: [id], onDelete: SetNull)
@@ -76,6 +82,7 @@ model Note {
   @@index([pinnedLiked])
   @@index([pinnedReposted])
   @@index([repostOfId])
+  @@index([reviewAt])
 }
 
 model Like {
@@ -125,4 +132,19 @@ model Category {
   pinned    Boolean  @default(false) // 是否置顶在分类列表最前
   createdAt DateTime @default(now())
   notes     Note[]
+}
+
+model Reminder {
+  id          String   @id @default(cuid())
+  title       String
+  content     String?
+  remindAt    DateTime
+  isCompleted Boolean  @default(false)
+  completedAt DateTime?
+  snoozeUntil DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([remindAt])
+  @@index([isCompleted])
 }

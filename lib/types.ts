@@ -55,6 +55,11 @@ export interface NoteDTO {
   repostOf: NoteDTO | null;
   createdAt: string;
   updatedAt: string;
+  /** 回顾提醒 */
+  reviewAt: string | null;
+  reviewRepeat: string | null;
+  reviewStep: number;
+  reviewLastSent: string | null;
   /** 社交统计与详情 */
   _social?: {
     likeCount: number;
@@ -90,6 +95,11 @@ export interface NoteInput {
   pinOrder?: number;
   /** 强制置顶到顶部（用于 allPinned 视图） */
   forcePinToTop?: boolean;
+  /** 回顾提醒 */
+  reviewAt?: string | null;
+  reviewRepeat?: string | null;
+  reviewStep?: number;
+  reviewLastSent?: string | null;
 }
 
 /** 批量调序请求 */
@@ -122,4 +132,30 @@ export interface DailyStatsDTO {
   count: number;
   important: number;
   veryImportant: number;
+}
+
+export interface ReminderDTO {
+  id: string;
+  title: string;
+  content: string | null;
+  remindAt: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  snoozeUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderInput {
+  title: string;
+  content?: string;
+  remindAt: string;
+}
+
+export interface ReminderUpdateInput {
+  title?: string;
+  content?: string | null;
+  remindAt?: string;
+  isCompleted?: boolean;
+  snoozeUntil?: string | null;
 }

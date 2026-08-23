@@ -104,3 +104,21 @@ export function getMonthSubdir(): string {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   return `${y}/${m}`;
 }
+
+/** 艾宾浩斯遗忘曲线：简化版间隔（天） */
+export const EBBINGHAUS_INTERVALS = [1, 3, 7, 14, 30];
+
+/** 根据当前步骤计算下次回顾时间和下一步骤 */
+export function calcEbbinghausNext(step: number): { date: Date; nextStep: number } {
+  const days = EBBINGHAUS_INTERVALS[step] ?? EBBINGHAUS_INTERVALS[0];
+  const nextStep = (step + 1) % EBBINGHAUS_INTERVALS.length;
+  return {
+    date: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+    nextStep,
+  };
+}
+
+/** 获取遗忘曲线某步骤对应的天数（用于 UI 展示） */
+export function getEbbinghausDays(step: number): number {
+  return EBBINGHAUS_INTERVALS[step] ?? EBBINGHAUS_INTERVALS[0];
+}

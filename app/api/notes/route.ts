@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');
   const withSocial = searchParams.get('withSocial') === 'true';
+  const reviewDue = searchParams.get('reviewDue') === 'true';
   const limit = Math.min(Number(searchParams.get('limit') || 20), 200);
   const offset = Math.max(Number(searchParams.get('offset') || 0), 0);
 
@@ -106,6 +107,11 @@ export async function GET(req: NextRequest) {
       { pinnedLiked: true },
       { pinnedReposted: true },
     ];
+  }
+
+  if (reviewDue) {
+    const now = new Date();
+    where.reviewAt = { lte: now };
   }
 
   const orderField =
@@ -270,10 +276,18 @@ export async function GET(req: NextRequest) {
           repostOf: null,
           createdAt: n.repostOf.createdAt.toISOString(),
           updatedAt: n.repostOf.updatedAt.toISOString(),
+          reviewAt: n.repostOf.reviewAt?.toISOString() || null,
+          reviewRepeat: n.repostOf.reviewRepeat || null,
+          reviewStep: n.repostOf.reviewStep ?? 0,
+          reviewLastSent: n.repostOf.reviewLastSent?.toISOString() || null,
         }
       : null,
     createdAt: n.createdAt.toISOString(),
     updatedAt: n.updatedAt.toISOString(),
+    reviewAt: n.reviewAt?.toISOString() || null,
+    reviewRepeat: n.reviewRepeat || null,
+    reviewStep: n.reviewStep ?? 0,
+    reviewLastSent: n.reviewLastSent?.toISOString() || null,
     ...(withSocial
       ? {
           _social: {
@@ -341,6 +355,10 @@ export async function POST(req: NextRequest) {
       favoriteOrder: newOrder,
       importantOrder: newOrder,
       categoryOrder: newOrder,
+      reviewAt: body.reviewAt ? new Date(body.reviewAt) : null,
+      reviewRepeat: body.reviewRepeat || null,
+      reviewStep: body.reviewStep ?? 0,
+      reviewLastSent: body.reviewLastSent ? new Date(body.reviewLastSent) : null,
     },
     include: { category: true },
   });
@@ -390,6 +408,10 @@ export async function POST(req: NextRequest) {
     repostOf: null,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
+    reviewAt: note.reviewAt?.toISOString() || null,
+    reviewRepeat: note.reviewRepeat || null,
+    reviewStep: note.reviewStep ?? 0,
+    reviewLastSent: note.reviewLastSent?.toISOString() || null,
   };
 
   return NextResponse.json({ note: data }, { status: 201 });

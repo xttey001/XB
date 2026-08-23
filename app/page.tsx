@@ -19,6 +19,11 @@ import SearchBar from '@/components/SearchBar';
 import SortToggle from '@/components/SortToggle';
 import ObsidianImportDialog from '@/components/ObsidianImportDialog';
 import CalendarFilter, { type DateSelection } from '@/components/CalendarFilter';
+import WorldClock from '@/components/WorldClock';
+import ReminderWidget from '@/components/ReminderWidget';
+import ReminderModal from '@/components/ReminderModal';
+import NoteReviewReminder from '@/components/NoteReviewReminder';
+import { useReminders } from '@/hooks/useReminders';
 
 type Filter =
   | { type: 'all' }
@@ -47,6 +52,24 @@ export default function HomePage() {
   const [dailyStats, setDailyStats] = useState<DailyStatsDTO[]>([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+  const {
+    reminders,
+    dueReminders,
+    showModal: showReminderModal,
+    closeModal: closeReminderModal,
+    completeReminder,
+    snoozeReminder,
+    dismissReminder,
+    addReminder,
+    removeReminder,
+    refresh: refreshReminders,
+
+    reviewNotes,
+    showReviewModal,
+    closeReviewModal,
+    markNoteReviewed,
+  } = useReminders();
 
   // 当前 scope，用于 API 调用和 reorder
   const currentScope: Scope =
@@ -383,6 +406,14 @@ export default function HomePage() {
             onSubmit={handleSearchSubmit}
           />
 
+          <ReminderWidget
+            reminders={reminders}
+            onCreated={addReminder}
+            onDeleted={removeReminder}
+            onCompleted={completeReminder}
+            onRefresh={refreshReminders}
+          />
+
           <button
             onClick={() => setImportOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-ink-600 hover:bg-ink-100 hover:text-ink-800 transition-colors flex-shrink-0"
@@ -394,8 +425,8 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* 主体：左侧分类 + 右侧内容流 */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex flex-col lg:flex-row gap-8">
+      {/* 主体：左侧分类 + 中间内容 + 右侧信息 */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col lg:flex-row gap-8">
         <div className="w-full lg:w-64 space-y-4 lg:sticky lg:top-24 lg:self-start lg:h-[calc(100vh-7rem)] lg:overflow-y-auto lg:overflow-x-hidden">
           <CalendarFilter
             value={dateFilter}
@@ -559,6 +590,11 @@ export default function HomePage() {
             </div>
           )}
         </div>
+
+        {/* 右侧边栏 */}
+        <div className="w-full lg:w-56 lg:sticky lg:top-24 lg:self-start lg:h-[calc(100vh-7rem)] lg:overflow-y-auto hidden lg:block">
+          <WorldClock />
+        </div>
       </main>
 
       <ObsidianImportDialog
@@ -571,6 +607,25 @@ export default function HomePage() {
           setSidebarRefreshKey((k) => k + 1);
         }}
       />
+
+      {showReminderModal && dueReminders.length > 0 && (
+        <ReminderModal
+          reminders={dueReminders}
+          onClose={closeReminderModal}
+          onComplete={completeReminder}
+          onSnooze={snoozeReminder}
+          onDismiss={dismissReminder}
+        />
+      )}
+
+      {showReviewModal && reviewNotes.length > 0 && (
+        <NoteReviewReminder
+          notes={reviewNotes}
+          onClose={closeReviewModal}
+          onReviewed={markNoteReviewed}
+          onNavigate={(id) => router.push(`/note/${id}`)}
+        />
+      )}
     </div>
   );
 }
