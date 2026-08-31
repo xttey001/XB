@@ -714,10 +714,131 @@ function renderIcon(icon: string, size: string = 'w-6 h-6 text-sm') {
 - 可通过 CSS 动态调整样式
 - 可通过代码批量生成
 
-### 混合使用策略
+**最后更新**：2026-08-30
 
-1. **人物/动物头像** → 用 GenerateImage（Seedream）
-2. **装饰性小图标** → 用 SVG 或 emoji
-3. **需要频繁更新的图标** → 用 SVG（便于代码修改）
+## 23. 分类侧边栏拖拽排序（HTML5 原生 Drag & Drop）
 
-**最后更新**：2026-08-16
+**功能**：左侧分类列表支持鼠标左键拖拽任意分类到其他位置，松手后自动保存排序到数据库。
+
+### 前置条件（已存在，无需新建）
+
+后端 API 和数据模型提前就绪，本次只需写前端：
+
+| 已存在资源 | 说明 |
+|-----------|------|
+| `Category.order` 字段 | Prisma schema 已有 `order Int @default(0)` |
+| `POST /api/categories/reorder` | `body: { items: [{ id, order }] }`，事务批量更新 |
+| `api.reorderCategories()` | `lib/api.ts` 客户端方法已封装 |
+
+### 实现原理
+
+```
+鼠标按下某分类
+    ↓
+handleDragStart: 记录 draggingId（useRef + useState 双写）
+    ↓
+鼠标移动经过各分类
+    ↓
+handleDragOver: 计算鼠标在目标上半部还是下半部
+    ↓
+               上半部 → 显示顶部插入线（插到目标前）
+               下半部 → 显示底部插入线（插到目标后）
+    ↓
+鼠标松开
+    ↓
+handleDrop: 计算新位置 → splice 重排数组 → 重新分配 order 值 → 调用 API → 刷新
+```
+
+### 关键坑：React state 异步更新
+
+**问题**：`handleDragStart` 里执行了 `setDraggingId(id)`，但紧接着浏览器触发 `handleDragOver` 时，读到的 `draggingId` state 仍然是 `null`（React 批量更新机制）。
+
+**解决**：**同时维护一份 `useRef`**，ref 承担同步读写：
+
+```tsx
+const draggingIdRef = useRef<string | null>(null);
+
+const handleDragStart = (e, catId) => {
+  draggingIdRef.current = catId;  // 同步写入
+  setDraggingId(catId);          // 用于渲染
+};
+
+const handleDragOver = (e, idx) => {
+  if (draggingIdRef.current == null) return;  // 用 ref 读，不会丢
+  // ...
+};
+
+const handleDrop = (e, targetIdx) => {
+  const dragId = draggingIdRef.current;  // drop 里也从 ref 取
+  draggingIdRef.current = null;          // 立即清空
+  // ...
+};
+```
+
+**经验教训**：所有原生 DOM 事件回调（dragstart、dragover、drop 等）如果需要访问自身状态，必须用 `useRef` 同步读写，不能依赖 `useState`。
+
+### 插入位置计算（上半部 vs 下半部）
+
+核心逻辑在 `handleDragOver`：
+
+```tsx
+const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+const mid = rect.top + rect.height / 2;
+const position = e.clientY < mid ? 'top' : 'bottom';
+```
+
+然后 `handleDrop` 里根据 `position` 计算新 index：
+
+```tsx
+let newIdx;
+if (position === 'top') {
+  newIdx = dragIdx < targetIdx ? targetIdx - 1 : targetIdx;
+} else {
+  newIdx = dragIdx < targetIdx ? targetIdx : targetIdx + 1;
+}
+```
+
+**为什么要区分上/下半部**：这样用户能精准控制插到目标项"前面"还是"后面"，拖拽体验类似 Trello、Linear 等现代应用。
+
+### order 值分配策略
+
+API 排序是 `order DESC`（越大越靠前），所以新数组 `reordered` 重新赋值时：
+
+```tsx
+const items = reordered.map((c, i) => ({ id: c.id, order: (reordered.length - i) * 10 }));
+```
+
+间距用 **10** 而不是连续的 1、2、3…… 好处是以后如果需要在两个分类之间再插入一个，只需要 `中间值 = (前 + 后) / 2` 即可，不用整体重排。
+
+### 视觉反馈清单
+
+| 状态 | 视觉效果 |
+|------|----------|
+| 可拖拽 | 光标 `cursor-grab`（hover）、`cursor-grabbing`（active） |
+| 正在拖动 | 当前项 `opacity: 0.4` + `scale-[0.98]` 微缩 |
+| 悬停目标（上半部） | 目标顶部蓝色插入线 |
+| 悬停目标（下半部） | 目标底部蓝色插入线 |
+| 编辑/删除中 | `draggable={false}`，禁用拖拽避免冲突 |
+
+### 改动文件清单
+
+只改了一个文件：`components/CategorySidebar.tsx`
+
+| 改动点 | 说明 |
+|--------|------|
+| 新增状态 | `draggingId`、`dragOverIdx`、`dragInsertPosition` |
+| 新增 ref | `draggingIdRef`（解决异步问题） |
+| 新增函数 | `handleDragStart`、`handleDragEnd`、`handleDragOver`、`handleDrop` |
+| 分类项 div | 加 `draggable={canDrag}` 和 4 个拖拽事件 |
+| 分类项 className | 加 `cursor-grab`、`opacity-40`、`scale-[0.98]` 等条件类 |
+| 插入指示线 | `<span className="absolute h-0.5 bg-accent-500 ...">` 条件渲染 |
+
+### 可复用代码模板
+
+这套 HTML5 原生拖拽 + 上/下半部插入定位 + useRef 同步状态 的模式，可以直接套用到任何垂直列表排序场景（笔记自定义排序、标签排序等），只要把：
+
+1. `categories` 换成目标数组
+2. `api.reorderCategories({ items })` 换成对应的重排序 API
+3. `order DESC` 的赋值逻辑适配目标表的排序字段
+
+即可。**不需要引入 `react-dnd`、`dnd-kit` 等第三方库**，HTML5 原生 API 足够应对侧边栏级别的列表排序。

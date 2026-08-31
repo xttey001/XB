@@ -90,7 +90,7 @@ export interface NoteInput {
   /** 重要等级：important / very_important，传 null 表示取消 */
   importance?: NoteImportance | null;
   /** 置顶操作所在的视图范围，后端据此更新对应置顶字段 */
-  scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
+  scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
   pinned?: boolean;
   pinOrder?: number;
   /** 强制置顶到顶部（用于 allPinned 视图） */
@@ -109,7 +109,7 @@ export interface ReorderItem {
 }
 
 export interface NoteReorderInput {
-  scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
+  scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
   items: ReorderItem[];
   /** 同时更新置顶状态时使用 */
   pinUpdates?: Array<{ id: string; pinned: boolean; pinOrder: number }>;

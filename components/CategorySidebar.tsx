@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Star,
@@ -17,6 +17,7 @@ import {
   Pin,
   Heart,
   Repeat,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -24,7 +25,7 @@ import type { CategoryDTO } from '@/lib/types';
 
 interface CategorySidebarProps {
   categories: CategoryDTO[];
-  selected: { type: 'all' | 'favorite' | 'important' | 'veryImportant' | 'liked' | 'reposted' | 'category' | 'tag' | 'allPinned'; id?: string; label?: string };
+  selected: { type: 'all' | 'favorite' | 'important' | 'veryImportant' | 'liked' | 'reposted' | 'category' | 'tag' | 'allPinned' | 'reviewed'; id?: string; label?: string };
   onSelect: (sel: CategorySidebarProps['selected']) => void;
   onCategoriesChange: () => void;
   /** 外部触发重新加载重要笔记数量（如增删改笔记后递增） */
@@ -94,11 +95,18 @@ export default function CategorySidebar({
   const [deleting, setDeleting] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
+
+  // 拖拽相关状态
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [dragInsertPosition, setDragInsertPosition] = useState<'top' | 'bottom' | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
   const [importantCount, setImportantCount] = useState<number | null>(null);
   const [veryImportantCount, setVeryImportantCount] = useState<number | null>(null);
   const [likedCount, setLikedCount] = useState<number | null>(null);
   const [repostedCount, setRepostedCount] = useState<number | null>(null);
   const [allPinnedCount, setAllPinnedCount] = useState<number | null>(null);
+  const [reviewedCount, setReviewedCount] = useState<number | null>(null);
   const [allCount, setAllCount] = useState<number | null>(null);
   const [favoriteCount, setFavoriteCount] = useState<number | null>(null);
 
@@ -182,6 +190,22 @@ export default function CategorySidebar({
     };
   }, [refreshKey]);
 
+  // 加载回顾数量
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listNotes({ scope: 'reviewed', limit: 1 })
+      .then(({ total }) => {
+        if (!cancelled) setReviewedCount(total);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
   // 加载全部笔记数量
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +237,105 @@ export default function CategorySidebar({
       cancelled = true;
     };
   }, [refreshKey]);
+
+  // ===== 拖拽排序 =====
+
+  const handleDragStart = (e: React.DragEvent, catId: string) => {
+    draggingIdRef.current = catId;
+    setDraggingId(catId);
+    setDragOverIdx(null);
+    setDragInsertPosition(null);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', catId);
+    // 让拖动的半透明项不参与 dragover 计算
+    const target = e.target as HTMLElement;
+    setTimeout(() => {
+      target.style.opacity = '0.4';
+    }, 0);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    draggingIdRef.current = null;
+    const target = e.target as HTMLElement;
+    target.style.opacity = '';
+    setDraggingId(null);
+    setDragOverIdx(null);
+    setDragInsertPosition(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggingIdRef.current == null) return;
+
+    // 计算鼠标在目标项的上半部还是下半部
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    const position = e.clientY < mid ? 'top' : 'bottom';
+
+    setDragOverIdx(idx);
+    setDragInsertPosition(position);
+  };
+
+  const handleDragLeave = () => {
+    // 只在离开容器时清除，否则在元素间移动会闪烁
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    const dragId = draggingIdRef.current;
+    const position = dragInsertPosition;
+    // 立即清除 ref
+    draggingIdRef.current = null;
+
+    if (dragId == null || position == null) return;
+
+    const dragIdx = categories.findIndex((c) => c.id === dragId);
+    if (dragIdx < 0 || dragIdx === targetIdx) {
+      setDraggingId(null);
+      setDragOverIdx(null);
+      setDragInsertPosition(null);
+      return;
+    }
+
+    // 计算新位置：如果目标是上半区，插到目标前；下半区则插到目标后
+    let newIdx = dragIdx;
+    if (position === 'top') {
+      newIdx = dragIdx < targetIdx ? targetIdx - 1 : targetIdx;
+    } else {
+      newIdx = dragIdx < targetIdx ? targetIdx : targetIdx + 1;
+    }
+    // 不能拖到自己原位
+    if (newIdx === dragIdx) {
+      setDraggingId(null);
+      setDragOverIdx(null);
+      setDragInsertPosition(null);
+      return;
+    }
+    // 边界检查
+    newIdx = Math.max(0, Math.min(categories.length - 1, newIdx));
+
+    // 构建新的有序数组（前端先乐观更新，API 失败则刷新）
+    const reordered = [...categories];
+    const [moved] = reordered.splice(dragIdx, 1);
+    reordered.splice(newIdx, 0, moved);
+
+    // 重新分配 order 值（保持间距为 10，方便以后插入）
+    const items = reordered.map((c, i) => ({ id: c.id, order: (reordered.length - i) * 10 }));
+
+    setMovingId(dragId);
+    try {
+      await api.reorderCategories({ items });
+      onCategoriesChange();
+    } catch (err: any) {
+      alert(err.message || '拖拽排序失败');
+    } finally {
+      setMovingId(null);
+      setDraggingId(null);
+      setDragOverIdx(null);
+      setDragInsertPosition(null);
+    }
+  };
 
   /**
    * 上移/下移分类：与相邻分类交换 order 值
@@ -336,6 +459,13 @@ export default function CategorySidebar({
           icon={<LayoutList size={15} />}
           label="全部笔记"
           count={allCount}
+        />
+        <SidebarItem
+          active={selected.type === 'reviewed'}
+          onClick={() => onSelect({ type: 'reviewed' })}
+          icon={<BookOpen size={15} />}
+          label="回顾"
+          count={reviewedCount}
         />
         <SidebarItem
           active={selected.type === 'allPinned'}
@@ -534,14 +664,34 @@ export default function CategorySidebar({
               );
             }
 
+            const isDraggingThis = draggingId === c.id;
+            const isDragOverThis = dragOverIdx === idx && !isDraggingThis;
+            const showTopInsertLine = isDragOverThis && dragInsertPosition === 'top';
+            const showBottomInsertLine = isDragOverThis && dragInsertPosition === 'bottom';
+            const canDrag = !isEditing && !isConfirming && !movingId;
+
             return (
               <div
                 key={c.id}
+                draggable={canDrag}
+                onDragStart={(e) => handleDragStart(e, c.id)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDrop={(e) => handleDrop(e, idx)}
                 className={cn(
-                  'group flex items-center justify-between rounded-md',
-                  isActive ? 'bg-accent-50' : 'hover:bg-ink-100'
+                  'group flex items-center justify-between rounded-md relative',
+                  canDrag && 'cursor-grab active:cursor-grabbing',
+                  isActive ? 'bg-accent-50' : 'hover:bg-ink-100',
+                  isDraggingThis && 'opacity-40 scale-[0.98]'
                 )}
               >
+                {/* 拖拽插入位置指示线 */}
+                {showTopInsertLine && (
+                  <span className="absolute -top-0.5 left-1 right-1 h-0.5 bg-accent-500 rounded-full pointer-events-none z-10" />
+                )}
+                {showBottomInsertLine && (
+                  <span className="absolute -bottom-0.5 left-1 right-1 h-0.5 bg-accent-500 rounded-full pointer-events-none z-10" />
+                )}
                 <button
                   onClick={() => onSelect({ type: 'category', id: c.id, label: c.name })}
                   className="flex-1 flex items-center gap-2 px-2 py-1.5 text-sm text-left min-w-0"

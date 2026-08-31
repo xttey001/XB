@@ -5,7 +5,7 @@ import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 type SortBy = 'createdAt' | 'updatedAt' | 'custom';
-type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
+type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
 
 /**
  * GET /api/notes
@@ -107,6 +107,9 @@ export async function GET(req: NextRequest) {
       { pinnedLiked: true },
       { pinnedReposted: true },
     ];
+  } else if (scope === 'reviewed') {
+    // 回顾视图：所有设置了回顾提醒的笔记
+    where.reviewAt = { not: null };
   }
 
   if (reviewDue) {
@@ -167,6 +170,11 @@ export async function GET(req: NextRequest) {
       ? 'globalPinOrder'
       : 'globalPinOrder';
 
+  const baseOrderBy =
+    scope === 'reviewed'
+      ? [{ reviewAt: 'asc' as const }]
+      : [{ [pinnedField]: 'desc' as const }, { [pinOrderField]: 'desc' as const }, { [orderField]: 'desc' as const }];
+
   const notes = await prisma.note.findMany({
     where,
     include: {
@@ -181,7 +189,7 @@ export async function GET(req: NextRequest) {
           }
         : {}),
     },
-    orderBy: [{ [pinnedField]: 'desc' }, { [pinOrderField]: 'desc' }, { [orderField]: 'desc' }],
+    orderBy: baseOrderBy,
     take: limit,
     skip: offset,
   });

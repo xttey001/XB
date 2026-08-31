@@ -214,12 +214,18 @@ export default function NoteReviewButton({
                   onClick={(e) => {
                     e.stopPropagation();
                     setRepeat(opt.value);
-                    if (hasReview) {
-                      const newDate = opt.value === 'ebbinghaus'
-                        ? calcNextReview('ebbinghaus', 0)
-                        : new Date(reviewAt!);
-                      handleSetReview(newDate, opt.value, opt.value === 'ebbinghaus' ? 0 : undefined);
+                    if (opt.value === 'none') {
+                      handleSetReview(null, 'none', undefined);
+                      return;
                     }
+                    // hasReview=true：基于当前 reviewAt 计算下次
+                    // hasReview=false：根据重复频率算一个初始日期
+                    const newDate = hasReview
+                      ? (opt.value === 'ebbinghaus'
+                          ? calcNextReview('ebbinghaus', 0)
+                          : new Date(reviewAt!))
+                      : calcNextReview(opt.value, 0);
+                    handleSetReview(newDate, opt.value, opt.value === 'ebbinghaus' ? 0 : undefined);
                   }}
                   className={`text-[10px] px-1.5 py-0.5 rounded ${
                     repeat === opt.value

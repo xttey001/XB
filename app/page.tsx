@@ -33,6 +33,7 @@ type Filter =
   | { type: 'liked' }
   | { type: 'reposted' }
   | { type: 'allPinned' }
+  | { type: 'reviewed' }
   | { type: 'category'; id: string; label: string };
 
 export default function HomePage() {
@@ -87,6 +88,8 @@ export default function HomePage() {
       ? 'reposted'
       : filter.type === 'allPinned'
       ? 'allPinned'
+      : filter.type === 'reviewed'
+      ? 'reviewed'
       : 'all';
 
   // 重要/极重要筛选：按视图分别筛选，不再合并
@@ -194,6 +197,15 @@ export default function HomePage() {
           }
           // createdAt 降序（最新创建的排最前）
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+      }
+
+      // reviewed 视图：按 reviewAt 升序（最紧急的排最前）
+      if (currentScope === 'reviewed') {
+        return updated.sort((a, b) => {
+          const aAt = a.reviewAt ? new Date(a.reviewAt).getTime() : Infinity;
+          const bAt = b.reviewAt ? new Date(b.reviewAt).getTime() : Infinity;
+          return aAt - bAt;
         });
       }
       
@@ -359,6 +371,8 @@ export default function HomePage() {
   const title =
     filter.type === 'all'
       ? '全部笔记'
+      : filter.type === 'reviewed'
+      ? '回顾'
       : filter.type === 'allPinned'
       ? '置顶'
       : filter.type === 'favorite'
@@ -371,7 +385,7 @@ export default function HomePage() {
       ? '点赞'
       : filter.type === 'reposted'
       ? '转发'
-      : filter.label || '分类';
+      : '分类';
 
   const showOrderControls = sortBy === 'custom' && currentScope !== 'liked' && currentScope !== 'reposted';
 

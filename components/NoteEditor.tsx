@@ -437,10 +437,25 @@ export default function NoteEditor({
                         setReviewRepeat(opt.value);
                         if (opt.value === 'ebbinghaus') {
                           setReviewStep(0);
-                          if (!hasReview) {
-                            const d = new Date(Date.now() + getEbbinghausDays(0) * 24 * 60 * 60 * 1000);
-                            setReviewAt(d.toISOString());
+                        }
+                        // 如果之前没设过 reviewAt，自动根据重复频率算一个初始日期
+                        if (!hasReview && opt.value !== 'none') {
+                          let d: Date;
+                          if (opt.value === 'ebbinghaus') {
+                            d = new Date(Date.now() + getEbbinghausDays(0) * 24 * 60 * 60 * 1000);
+                          } else if (opt.value === 'daily') {
+                            d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                          } else if (opt.value === 'weekly') {
+                            d = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                          } else if (opt.value === 'biweekly') {
+                            d = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+                          } else if (opt.value === 'monthly') {
+                            d = new Date();
+                            d.setMonth(d.getMonth() + 1);
+                          } else {
+                            return;
                           }
+                          setReviewAt(d.toISOString());
                         }
                       }}
                       className={cn(

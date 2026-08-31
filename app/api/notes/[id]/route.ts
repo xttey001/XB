@@ -8,7 +8,7 @@ interface RouteParams {
   params: { id: string };
 }
 
-function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' = 'all'): NoteDTO {
+function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed' = 'all'): NoteDTO {
   const pinnedField =
     scope === 'favorite'
       ? 'pinnedFavorite'
@@ -117,7 +117,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   }
 
   // scope 决定更新哪个置顶字段和置顶排序字段
-  const scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' =
+  const scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed' =
     body.scope || 'all';
   const pinnedField =
     scope === 'favorite'

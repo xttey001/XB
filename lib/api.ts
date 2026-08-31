@@ -34,7 +34,7 @@ async function request<T>(
 }
 
 export type SortBy = 'createdAt' | 'updatedAt' | 'custom';
-export type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned';
+export type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
 
 export interface NoteLinkResult {
   id: string;
