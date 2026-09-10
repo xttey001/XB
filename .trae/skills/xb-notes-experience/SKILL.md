@@ -842,3 +842,147 @@ const items = reordered.map((c, i) => ({ id: c.id, order: (reordered.length - i)
 3. `order DESC` 的赋值逻辑适配目标表的排序字段
 
 即可。**不需要引入 `react-dnd`、`dnd-kit` 等第三方库**，HTML5 原生 API 足够应对侧边栏级别的列表排序。
+
+## 24. Windows Git 推送三件事：bat 乱码 + Clash 代理 + 快捷脚本
+
+**问题**：用户频繁需要推送代码到 GitHub，希望一键操作。但自建 `push.bat` 后遇到两个问题：双击乱码、push 连不上。
+
+### bat 乱码根因
+
+Windows CMD 默认代码页是 **CodePage 936（GB2312）**，如果 `.bat` 文件以 UTF-8 保存，CMD 启动时直接按 GB2312 解析字节，中文全部变成 mojibake。脚本开头写 `chcp 65001 >nul` 没用 —— **文件在被解析时编码就已经错了**，等执行到 `chcp` 时所有命令字符串已经被拆坏。
+
+**解决方案（两层保险）**：
+
+1. **所有提示和注释用英文**，彻底绕开编码问题
+2. **文件以 GB2312 编码保存**。在 PowerShell 里写：
+   ```powershell
+   [System.IO.File]::WriteAllText("push.bat", $content, [System.Text.Encoding]::GetEncoding(936))
+   ```
+
+### push 连不上 GitHub（Clash 代理）
+
+**根因**：Clash 开了，但 git 默认**不走代理**。`git push` 直接裸连 `github.com:443` 被墙挡住。
+
+**排查步骤**：
+
+1. 确认系统能否直接连：`Test-NetConnection github.com -Port 443`（TcpTestSucceeded = False 就是被墙）
+2. 查本地代理端口：`Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 7890,7897,9090,10808,10809 }`
+   - Clash 默认 HTTP 端口可能是 **7890、7897** 或用户自定义
+3. 确认 git 代理配置：`git config --global --get http.proxy`
+
+**配置命令（用户手动在 CMD 里执行，Agent 沙箱会拦截全局 gitconfig 写入）**：
+
+```bat
+git config --global http.proxy http://127.0.0.1:7897
+git config --global https.proxy http://127.0.0.1:7897
+```
+
+如果只想某个仓库走代理（不影响其他仓库），去掉 `--global` 即可：
+```bat
+git config http.proxy http://127.0.0.1:7897
+git config https.proxy http://127.0.0.1:7897
+```
+
+**⚠️ 重要**：Clash 的 **HTTP 代理端口**（通常 7890/7897）和 **API 端口**（9090）不是同一个。git 需要连的是 HTTP 代理端口，不是 9090。
+
+### push.bat 完整实现（已验证可直接用）
+
+位置：项目根目录 `push.bat`
+
+```bat
+@echo off
+setlocal
+
+rem ====== Git Push Shortcut ======
+rem Usage: push.bat "commit message"  or  push.bat (auto message)
+
+cd /d "%~dp0"
+
+rem Check if git repo
+if not exist ".git" (
+    echo [ERROR] Not a git repository
+    pause
+    exit /b 1
+)
+
+rem Check for changes
+git status --porcelain | findstr /r ".*" >nul
+if errorlevel 1 (
+    echo [INFO] No changes to commit
+    pause
+    exit /b 0
+)
+
+rem Build commit message
+if "%~1"=="" (
+    for /f "delims=" %%c in ('git status --porcelain ^| find /c /v ""') do set COUNT=%%c
+) else (
+    set MSG=%~1
+)
+
+echo.
+echo ============ Git Push ============
+echo Message: %~1
+echo.
+
+rem Add all changes
+git add -A
+if errorlevel 1 (
+    echo [ERROR] git add failed
+    pause
+    exit /b 1
+)
+
+rem Commit
+if "%~1"=="" (
+    git commit -m "sync: %COUNT% files updated"
+) else (
+    git commit -m "%~1"
+)
+if errorlevel 1 (
+    echo [ERROR] git commit failed
+    pause
+    exit /b 1
+)
+
+rem Push
+git push origin main
+if errorlevel 1 (
+    echo [ERROR] git push failed
+    pause
+    exit /b 1
+)
+
+echo.
+echo [DONE] Push success!
+pause
+endlocal
+```
+
+### 经验教训
+
+| 现象 | 真正原因 | 正确做法 |
+|------|----------|----------|
+| bat 乱码 | 文件以 UTF-8 保存，CMD 按 GB2312 解析 | 纯英文 + GB2312 编码保存 |
+| `chcp 65001` 无效 | 解析在执行前完成，太迟了 | 不要依赖 chcp |
+| `git push` 卡死 21 秒后失败 | 被墙 | 配 Clash 代理 |
+| Agent 说已推成功但远程没更新 | Agent 沙箱环境可能走了不同网络路径 | 让用户在本机验证 |
+| Agent 改不了全局 gitconfig | 沙箱限制 C:\Users\*\ .gitconfig | 提示用户手动在管理员 CMD 执行 |
+
+### 快速诊断 Checklist
+
+```powershell
+# 1. 测试能否直连 GitHub
+Test-NetConnection github.com -Port 443
+
+# 2. 查代理端口（Clash 等）
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -gt 1024 }
+
+# 3. 查 git 代理配置
+git config --global --list | findstr proxy
+
+# 4. 查当前仓库代理配置（覆盖全局）
+git config --list | findstr proxy
+```
+
+**最后更新**：2026-09-05
