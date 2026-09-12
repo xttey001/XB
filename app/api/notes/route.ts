@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parseJsonArray, stringifyJsonArray, generateSummary } from '@/lib/utils';
+import { parseJsonArray, stringifyJsonArray, generateSummary, getEbbinghausDays } from '@/lib/utils';
 import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 type SortBy = 'createdAt' | 'updatedAt' | 'custom';
 type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
+
+/** 根据重复频率计算下次回顾日期（防御性兜底） */
+function calcNextReviewAt(repeat: string, step?: number): Date | null {
+  const now = new Date();
+  switch (repeat) {
+    case 'ebbinghaus': {
+      const s = step ?? 0;
+      return new Date(now.getTime() + getEbbinghausDays(s) * 24 * 60 * 60 * 1000);
+    }
+    case 'daily': return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    case 'weekly': return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    case 'biweekly': return new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    case 'monthly': {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    }
+    default: return null;
+  }
+}
 
 /**
  * GET /api/notes
@@ -329,6 +349,16 @@ export async function POST(req: NextRequest) {
       { error: '笔记内容和图片不能同时为空' },
       { status: 400 }
     );
+  }
+
+  // === 防御性修复：reviewRepeat 有值但 reviewAt 缺失时自动补算 ===
+  const effectiveRepeat = body.reviewRepeat || null;
+  if (effectiveRepeat && effectiveRepeat !== 'none' && !body.reviewAt) {
+    const fallbackDate = calcNextReviewAt(effectiveRepeat, body.reviewStep);
+    if (fallbackDate) {
+      body.reviewAt = fallbackDate.toISOString();
+      console.log(`[POST /api/notes] 防御性修复: reviewRepeat=${effectiveRepeat} 但 reviewAt 缺失，已自动补算为 ${fallbackDate.toISOString()}`);
+    }
   }
 
   // 新建笔记时，把它放在自定义排序列表的顶部（order 取当前最大值 + 1）

@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parseJsonArray, stringifyJsonArray } from '@/lib/utils';
+import { parseJsonArray, stringifyJsonArray, getEbbinghausDays } from '@/lib/utils';
 import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
 interface RouteParams {
   params: { id: string };
+}
+
+/** 根据重复频率计算下次回顾日期（防御性兜底） */
+function calcNextReviewAt(repeat: string, step?: number): Date | null {
+  const now = new Date();
+  switch (repeat) {
+    case 'ebbinghaus': {
+      const s = step ?? 0;
+      return new Date(now.getTime() + getEbbinghausDays(s) * 24 * 60 * 60 * 1000);
+    }
+    case 'daily': return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    case 'weekly': return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    case 'biweekly': return new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    case 'monthly': {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    }
+    default: return null;
+  }
 }
 
 function toDTO(note: any, scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed' = 'all'): NoteDTO {
@@ -114,6 +134,21 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   const existing = await prisma.note.findUnique({ where: { id: params.id } });
   if (!existing) {
     return NextResponse.json({ error: '笔记不存在' }, { status: 404 });
+  }
+
+  // === 防御性修复：reviewRepeat 有值但 reviewAt 缺失时自动补算 ===
+  // 防止前端保存时不小心把 reviewAt 清成 null
+  const incomingRepeat = body.reviewRepeat !== undefined ? body.reviewRepeat : existing.reviewRepeat;
+  const incomingAt = body.reviewAt !== undefined ? body.reviewAt : existing.reviewAt?.toISOString();
+  const incomingStep = body.reviewStep !== undefined ? body.reviewStep : existing.reviewStep;
+
+  if (incomingRepeat && incomingRepeat !== 'none' && !incomingAt) {
+    // 有重复频率但没有回顾时间 → 自动补算
+    const fallbackDate = calcNextReviewAt(incomingRepeat, incomingStep);
+    if (fallbackDate) {
+      body.reviewAt = fallbackDate.toISOString();
+      console.log(`[PUT /api/notes/${params.id}] 防御性修复: reviewRepeat=${incomingRepeat} 但 reviewAt 缺失，已自动补算为 ${fallbackDate.toISOString()}`);
+    }
   }
 
   // scope 决定更新哪个置顶字段和置顶排序字段
