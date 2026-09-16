@@ -16,6 +16,7 @@ export function useReminders() {
   const [loading, setLoading] = useState(false);
   const displayedReminderIdsRef = useRef<Set<string>>(new Set());
   const displayedReviewNoteIdsRef = useRef<Set<string>>(new Set());
+  const isReviewingAllRef = useRef(false);  // 一键回顾进行中，阻止定时器弹出
 
   const calcNextReview = useCallback((repeat: string, step?: number): Date | null => {
     const now = new Date();
@@ -74,7 +75,12 @@ export function useReminders() {
       const newDueIds = due.map((n) => n.id);
       const hasNewDue = newDueIds.some((id) => !displayedReviewNoteIdsRef.current.has(id));
 
+      // 一键回顾进行中 → 跳过自动弹出，避免竞态
+      if (isReviewingAllRef.current) return;
+
       if (hasNewDue && due.length > 0) {
+        // 记录已弹出的 ID，避免下次定时器重复弹
+        newDueIds.forEach((id) => displayedReviewNoteIdsRef.current.add(id));
         setShowReviewModal(true);
       }
 
@@ -183,6 +189,67 @@ export function useReminders() {
     }
   }, [reviewNotes, calcNextReview]);
 
+  // 一键全部回顾：逐条按各自重复规则续期
+  const reviewAllNotes = useCallback(async () => {
+    const currentNotes = [...reviewNotes];
+    // 乐观更新
+    setReviewNotes([]);
+    setShowReviewModal(false);
+    displayedReviewNoteIdsRef.current.clear();  // 清掉，下次刷新重新判断
+    isReviewingAllRef.current = true;  // 进入静默期，阻止定时器弹出
+
+    try {
+      await Promise.all(
+        currentNotes.map((note) => {
+          let nextReviewAt: Date | null = null;
+          let nextStep: number | undefined = undefined;
+
+          if (note.reviewRepeat && note.reviewRepeat !== 'none') {
+            if (note.reviewRepeat === 'ebbinghaus') {
+              const { date, nextStep: ns } = calcEbbinghausNext(note.reviewStep ?? 0);
+              nextReviewAt = date;
+              nextStep = ns;
+            } else {
+              nextReviewAt = calcNextReview(note.reviewRepeat, note.reviewStep);
+            }
+          }
+
+          const updateData: {
+            reviewAt?: string | null;
+            reviewStep?: number;
+            reviewLastSent?: string | null;
+          } = { reviewLastSent: null };
+
+          if (nextReviewAt) {
+            updateData.reviewAt = nextReviewAt.toISOString();
+          } else {
+            updateData.reviewAt = null;
+          }
+          if (nextStep !== undefined) {
+            updateData.reviewStep = nextStep;
+          }
+
+          return api.updateNote(note.id, updateData);
+        })
+      );
+
+      // 所有 API 完成后，主动刷新一次后端数据，确保没有残留
+      await fetchReviewNotes();
+    } finally {
+      isReviewingAllRef.current = false;  // 解除静默
+    }
+  }, [reviewNotes, calcNextReview, fetchReviewNotes]);
+
+  // 稍后再看：10 分钟后自动再弹出
+  const snoozeReviewNotes = useCallback(() => {
+    setShowReviewModal(false);
+    // 用定时器，10 分钟后重新弹出（reviewNotes 保持不变，让用户稍后看到同样的列表）
+    const snoozeMs = 10 * 60 * 1000;
+    setTimeout(() => {
+      setShowReviewModal(true);
+    }, snoozeMs);
+  }, []);
+
   const addReminder = useCallback((reminder: ReminderDTO) => {
     setReminders((prev) => [...prev, reminder]);
   }, []);
@@ -210,6 +277,8 @@ export function useReminders() {
     showReviewModal,
     closeReviewModal,
     markNoteReviewed,
+    reviewAllNotes,
+    snoozeReviewNotes,
 
     addReminder,
     removeReminder,

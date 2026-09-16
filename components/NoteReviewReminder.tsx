@@ -14,6 +14,8 @@ interface NoteReviewReminderProps {
   onClose: () => void;
   onReviewed: (noteId: string, nextReviewAt?: Date | null, nextStep?: number) => void;
   onNavigate: (noteId: string) => void;
+  onReviewAll?: () => void;
+  onSnooze?: () => void;
 }
 
 const QUICK_REVIEW_OPTIONS = [
@@ -58,11 +60,14 @@ export default function NoteReviewReminder({
   onClose,
   onReviewed,
   onNavigate,
+  onReviewAll,
+  onSnooze,
 }: NoteReviewReminderProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [settingId, setSettingId] = useState<string | null>(null);
   const [customDate, setCustomDate] = useState('');
   const [repeatForId, setRepeatForId] = useState<string | null>(null);
+  const [reviewingAll, setReviewingAll] = useState(false);
 
   const handleReviewed = async (note: NoteDTO) => {
     let nextReviewAt: Date | null = null;
@@ -285,15 +290,30 @@ export default function NoteReviewReminder({
         </div>
 
         <div className="px-5 py-3 bg-ink-50 border-t border-ink-100 flex items-center justify-between">
-          <span className="text-xs text-ink-500">
-            共 {notes.length} 条待回顾笔记
-          </span>
           <button
-            onClick={onClose}
-            className="text-xs text-ink-500 hover:text-ink-700"
+            onClick={onSnooze ?? onClose}
+            className="text-xs text-ink-500 hover:text-ink-700 flex items-center gap-1"
           >
-            稍后再看
+            稍后再看 · 10 分钟后提醒
           </button>
+          {onReviewAll && (
+            <button
+              onClick={async () => {
+                if (reviewingAll) return;
+                setReviewingAll(true);
+                try {
+                  await onReviewAll();
+                } finally {
+                  setReviewingAll(false);
+                }
+              }}
+              disabled={reviewingAll}
+              className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+            >
+              <Check size={13} />
+              {reviewingAll ? '回顾中...' : `一键全部回顾 (${notes.length})`}
+            </button>
+          )}
         </div>
       </div>
     </div>

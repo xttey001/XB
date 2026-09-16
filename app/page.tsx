@@ -70,6 +70,8 @@ export default function HomePage() {
     showReviewModal,
     closeReviewModal,
     markNoteReviewed,
+    reviewAllNotes,
+    snoozeReviewNotes,
   } = useReminders();
 
   // 当前 scope，用于 API 调用和 reorder
@@ -638,6 +640,8 @@ export default function HomePage() {
           onClose={closeReviewModal}
           onReviewed={markNoteReviewed}
           onNavigate={(id) => router.push(`/note/${id}`)}
+          onReviewAll={reviewAllNotes}
+          onSnooze={snoozeReviewNotes}
         />
       )}
     </div>
