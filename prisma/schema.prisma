@@ -69,6 +69,7 @@ model Note {
 
   outgoingLinks   NoteLink[] @relation("NoteLinkSource")
   incomingLinks   NoteLink[] @relation("NoteLinkTarget")
+  noteEntities    NoteEntity[]
 
   @@index([categoryId])
   @@index([createdAt])
@@ -116,11 +117,20 @@ model NoteLink {
   targetId  String   // 目标笔记（被链接的）
   source    Note     @relation("NoteLinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
   target    Note     @relation("NoteLinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  // 链接来源：manual（用户手动创建）/ ai_suggested（AI 建议，待审核）/ ai_accepted（AI 建议已接受）
+  linkSource String   @default("manual")
+  // 链接类型：relates（普通关联）/ part_of（属于）/ example（示例）/ cause（因果）/ opposite（对立）
+  linkType   String?
+  // AI 建议时的置信度 0-1
+  confidence Float?
+
   createdAt DateTime @default(now())
 
   @@unique([sourceId, targetId])
   @@index([sourceId])
   @@index([targetId])
+  @@index([linkSource])
 }
 
 model Category {
@@ -147,4 +157,52 @@ model Reminder {
 
   @@index([remindAt])
   @@index([isCompleted])
+}
+
+// ===== Phase 3: AI 知识抽取 =====
+
+// 全局实体词典
+model Entity {
+  id          String   @id @default(cuid())
+  name        String   @unique          // 规范名（canonical name）
+  aliases     String   @default("[]")   // JSON，别名/同义词数组
+  entityType  String?                    // 实体类型：concept（概念）/ term（术语）/ person（人物）/ event（事件）/ system（系统）/ other
+  definition  String?                    // 一句话定义（AI 生成）
+  noteCount   Int      @default(0)      // 被多少条笔记引用（缓存，从 NoteEntity 反查）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  noteRefs    NoteEntity[]
+}
+
+// 笔记 ↔ 实体 多对多
+model NoteEntity {
+  id        String   @id @default(cuid())
+  noteId    String
+  entityId  String
+  context   String?  // 笔记中出现该实体的原文片段（用于溯源）
+  createdAt DateTime @default(now())
+
+  note    Note   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  entity  Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, entityId])
+  @@index([entityId])
+  @@index([noteId])
+}
+
+// 知识地图：自动生成的 Mermaid/markdown 思维导图
+model KnowledgeMap {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  // 覆盖范围：categoryId（按分类）/ noteIds（JSON，自定义笔记集合）
+  scopeType   String   // "category" / "custom"
+  scopeValue  String?  // categoryId 或 JSON noteIds
+  mermaid     String   // 完整的 ```mermaid ... ``` 内容
+  markdown    String?  // 可选的 markdown 版本（带说明）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scopeType])
 }

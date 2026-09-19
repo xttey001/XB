@@ -8,6 +8,7 @@ import {
   Inbox,
   Upload,
   Pin,
+  Sparkles,
 } from 'lucide-react';
 import { format, getYear, getMonth } from 'date-fns';
 import { api, type SortBy, type Scope } from '@/lib/api';
@@ -429,6 +430,15 @@ export default function HomePage() {
             onCompleted={completeReminder}
             onRefresh={refreshReminders}
           />
+
+          <button
+            onClick={() => router.push('/ai')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-purple-600 hover:bg-purple-50 transition-colors flex-shrink-0"
+            title="AI 知识工作台"
+          >
+            <Sparkles size={14} />
+            <span className="hidden md:inline">AI 知识</span>
+          </button>
 
           <button
             onClick={() => setImportOpen(true)}

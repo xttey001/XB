@@ -49,6 +49,18 @@ export interface NoteLinksResponse {
   relatedByTag: NoteLinkResult[];
 }
 
+export interface TopicTreeNode {
+  id: string;
+  summary: string;
+  tags: string[];
+  categoryId: string | null;
+  categoryName: string | null;
+  importance: string | null;
+  createdAt: string;
+  depth: number;
+  links: TopicTreeNode[];
+}
+
 export const api = {
   // ===== Notes =====
   listNotes(params: {
@@ -131,6 +143,38 @@ export const api = {
 
   getNoteLinks(id: string): Promise<NoteLinksResponse> {
     return request(`/api/notes/${id}/links`);
+  },
+
+  /** 链接推荐助手：返回与该笔记可能相关但还没手动链接的笔记 */
+  getLinkSuggestions(id: string, limit = 5): Promise<{
+    suggestions: Array<{
+      id: string;
+      summary: string;
+      tags: string[];
+      categoryId: string | null;
+      categoryName: string | null;
+      importance: string | null;
+      createdAt: string;
+      reasons: string[];
+      score: number;
+    }>;
+  }> {
+    return request(`/api/notes/${id}/link-suggestions?limit=${limit}`);
+  },
+
+  /** 主题树导航：返回以 rootId 为根的 N 跳手动链接树 */
+  getTopicTree(rootId: string, opts?: { depth?: number; direction?: 'outgoing' | 'incoming' | 'both' }): Promise<{
+    rootId: string;
+    depth: number;
+    direction: string;
+    tree: TopicTreeNode;
+    stats: { totalNodes: number; totalManualLinks: number };
+  }> {
+    const sp = new URLSearchParams();
+    if (opts?.depth) sp.set('depth', String(opts.depth));
+    if (opts?.direction) sp.set('direction', opts.direction);
+    const qs = sp.toString();
+    return request(`/api/topic/${rootId}${qs ? `?${qs}` : ''}`);
   },
 
   reorderNotes(input: NoteReorderInput): Promise<{ success: boolean }> {
