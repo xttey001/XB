@@ -142,6 +142,35 @@ model Category {
   pinned    Boolean  @default(false) // 是否置顶在分类列表最前
   createdAt DateTime @default(now())
   notes     Note[]
+
+  // 知识层级：这个 Category 属于哪个一级主干（KnowledgeArea）
+  knowledgeAreaId  String?
+  knowledgeArea    KnowledgeArea?   @relation(fields: [knowledgeAreaId], references: [id], onDelete: SetNull)
+
+  // Category 自身的父子层级（可选嵌套，一般只嵌套一层）
+  parentId String?
+  parent   Category? @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryParent")
+
+  // 掌握程度：unknown / aware / can_use / mastered
+  progressStatus String @default("unknown")
+}
+
+// ===== Phase 3b: 知识层级（你要的主干-分支-叶子树） =====
+
+// 一级主干：你手动定义的领域（交易技术、交易心理、宏观...）
+model KnowledgeArea {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  icon           String?
+  color          String   @default("#654ACB")
+  description    String?
+  order          Int      @default(0)
+  // 学习进度标记（你真正要学的模块在这一层标记）
+  progressStatus String   @default("unknown")  // unknown / aware / can_use / mastered
+  createdAt      DateTime @default(now())
+
+  categories Category[]
 }
 
 model Reminder {

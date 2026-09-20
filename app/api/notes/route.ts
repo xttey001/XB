@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Number(searchParams.get('limit') || 20), 200);
   const offset = Math.max(Number(searchParams.get('offset') || 0), 0);
 
+  const includeDescendants = searchParams.get('includeDescendants') === 'true';
   const VALID_IMPORTANCE = ['important', 'very_important'];
 
   const where: any = {};
@@ -72,7 +73,33 @@ export async function GET(req: NextRequest) {
       { tags: { contains: q } },
     ];
   }
-  if (categoryId) where.categoryId = categoryId;
+  if (categoryId) {
+    if (includeDescendants) {
+      // 递归拉所有子孙分类 ID
+      const allCats = await prisma.category.findMany({ select: { id: true, parentId: true } });
+      const childrenMap = new Map<string, string[]>();
+      for (const c of allCats) {
+        if (c.parentId) {
+          const arr = childrenMap.get(c.parentId) || [];
+          arr.push(c.id);
+          childrenMap.set(c.parentId, arr);
+        }
+      }
+      const ids = [categoryId];
+      const stack = [categoryId];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        const kids = childrenMap.get(cur) || [];
+        for (const kid of kids) {
+          ids.push(kid);
+          stack.push(kid);
+        }
+      }
+      where.categoryId = { in: ids };
+    } else {
+      where.categoryId = categoryId;
+    }
+  }
   if (favorite) where.isFavorite = true;
   if (tag) {
     where.tags = { contains: `"${tag}"` };

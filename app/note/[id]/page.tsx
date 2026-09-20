@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -33,6 +33,9 @@ import type { NoteImportance } from '@/lib/types';
 export default function NoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromKnowledge = searchParams.get('from') === 'knowledge';
+  const areaId = searchParams.get('areaId');
   const [note, setNote] = useState<NoteDTO | null>(null);
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,13 +175,23 @@ export default function NoteDetailPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-ink-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 p-2 -ml-2 rounded-md hover:bg-ink-100 text-ink-600"
-          >
-            <ArrowLeft size={18} />
-            <span className="text-sm hidden sm:inline">返回</span>
-          </Link>
+          {fromKnowledge && areaId ? (
+            <Link
+              href={`/knowledge/areas/${areaId}`}
+              className="inline-flex items-center gap-1.5 p-2 -ml-2 rounded-md hover:bg-ink-100 text-accent-600"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-sm hidden sm:inline">返回知识层级</span>
+            </Link>
+          ) : (
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 p-2 -ml-2 rounded-md hover:bg-ink-100 text-ink-600"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-sm hidden sm:inline">返回</span>
+            </Link>
+          )}
           <div className="flex items-center gap-0.5">
             <button
               onClick={handleTogglePin}

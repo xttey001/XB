@@ -2,37 +2,60 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { CategoryDTO } from '@/lib/types';
 
-/** GET /api/categories —— 列出所有分类，按 order 排序，附带笔记数 */
+/** GET /api/categories — 列出所有分类（带父子关系） */
 export async function GET() {
-  const categories = await prisma.category.findMany({
-    include: { _count: { select: { notes: true } } },
-    orderBy: [{ pinned: 'desc' }, { order: 'desc' }, { createdAt: 'asc' }],
-  });
+  const [categories, childCounts] = await Promise.all([
+    prisma.category.findMany({
+      include: { _count: { select: { notes: true } } },
+      orderBy: [{ pinned: 'desc' }, { order: 'desc' }, { createdAt: 'asc' }],
+    }),
+    prisma.category.groupBy({
+      by: ['parentId'],
+      _count: { parentId: true },
+      where: { parentId: { not: null } },
+    }),
+  ]);
 
-  const data: CategoryDTO[] = categories.map((c) => ({
-    id: c.id,
-    name: c.name,
-    color: c.color,
-    icon: c.icon,
-    order: c.order,
-    pinned: c.pinned,
-    createdAt: c.createdAt.toISOString(),
-    _count: { notes: c._count.notes },
-  }));
+  const childMap = new Map<string, number>();
+  for (const g of childCounts) {
+    if (g.parentId) childMap.set(g.parentId, g._count.parentId);
+  }
+
+  const data: CategoryDTO[] = categories.map((c) => {
+    const cc = childMap.get(c.id) || 0;
+    return {
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      icon: c.icon,
+      order: c.order,
+      pinned: c.pinned,
+      createdAt: c.createdAt.toISOString(),
+      parentId: c.parentId,
+      hasChildren: cc > 0,
+      childrenCount: cc,
+      knowledgeAreaId: c.knowledgeAreaId,
+      _count: { notes: c._count.notes },
+    };
+  });
 
   return NextResponse.json({ categories: data });
 }
 
-/** POST /api/categories —— 创建分类 */
+/** POST /api/categories — 创建分类（支持 parentId 指定父分类） */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { name, color, icon } = body;
+  const { name, color, icon, parentId } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: '分类名称不能为空' }, { status: 400 });
   }
 
-  // 新建分类默认放在末尾（order 取当前最大值 + 1）
+  // 防止把自己挂到自己下面
+  if (parentId === name) {
+    // 这个不太可能，只是防御
+  }
+
   const maxOrder = await prisma.category.aggregate({ _max: { order: true } });
   const newOrder = (maxOrder._max.order ?? 0) + 1;
 
@@ -43,8 +66,11 @@ export async function POST(req: NextRequest) {
         color: color || '#6B7280',
         icon: icon || null,
         order: newOrder,
+        parentId: parentId || null,
       },
     });
+
+    const cc = await prisma.category.count({ where: { parentId: category.id } });
     const data: CategoryDTO = {
       id: category.id,
       name: category.name,
@@ -53,6 +79,10 @@ export async function POST(req: NextRequest) {
       order: category.order,
       pinned: category.pinned,
       createdAt: category.createdAt.toISOString(),
+      parentId: category.parentId,
+      hasChildren: cc > 0,
+      childrenCount: cc,
+      knowledgeAreaId: category.knowledgeAreaId,
     };
     return NextResponse.json({ category: data }, { status: 201 });
   } catch (e: any) {

@@ -9,6 +9,7 @@ import {
   Upload,
   Pin,
   Sparkles,
+  GitBranch,
 } from 'lucide-react';
 import { format, getYear, getMonth } from 'date-fns';
 import { api, type SortBy, type Scope } from '@/lib/api';
@@ -128,7 +129,7 @@ export default function HomePage() {
         if (filter.type === 'important' || filter.type === 'veryImportant') params.importance = importanceFilter;
         if (filter.type === 'liked') params.liked = true;
         if (filter.type === 'reposted') params.reposted = true;
-        if (filter.type === 'category') params.categoryId = filter.id;
+        if (filter.type === 'category') { params.categoryId = filter.id; params.includeDescendants = true; }
         if (dateFilter?.type === 'single') {
           params.startDate = dateFilter.date;
           params.endDate = dateFilter.date;
@@ -430,6 +431,15 @@ export default function HomePage() {
             onCompleted={completeReminder}
             onRefresh={refreshReminders}
           />
+
+          <button
+            onClick={() => router.push('/knowledge')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-accent-600 hover:bg-accent-50 transition-colors flex-shrink-0"
+            title="知识层级"
+          >
+            <GitBranch size={14} />
+            <span className="hidden md:inline">知识层级</span>
+          </button>
 
           <button
             onClick={() => router.push('/ai')}

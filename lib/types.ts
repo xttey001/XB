@@ -78,6 +78,11 @@ export interface CategoryDTO {
   order: number;
   pinned: boolean;
   createdAt: string;
+  // 层级关系（侧边栏嵌套用，有的 API 不返回这些）
+  parentId?: string | null;
+  hasChildren?: boolean;
+  childrenCount?: number;
+  knowledgeAreaId?: string | null;
   _count?: { notes: number };
 }
 

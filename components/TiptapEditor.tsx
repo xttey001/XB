@@ -6,6 +6,7 @@ import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
+import Highlight from '@tiptap/extension-highlight';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
@@ -31,9 +32,10 @@ import {
   AlignCenter,
   Lightbulb,
   Link as LinkIcon,
+  Highlighter,
 } from 'lucide-react';
 import { cn, isHtmlContent } from '@/lib/utils';
-import ColorPopover, { PRESET_COLORS } from './ColorPopover';
+import ColorPopover, { PRESET_COLORS, PRESET_HIGHLIGHTS } from './ColorPopover';
 import Callout from '@/lib/tiptap-callout';
 import NoteLinkDialog from './NoteLinkDialog';
 
@@ -109,6 +111,7 @@ export default function TiptapEditor({
       }),
       TextStyle,
       Color,
+      Highlight.configure({ multicolor: true }),
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TaskList,
@@ -322,8 +325,19 @@ export default function TiptapEditor({
           colors={PRESET_COLORS}
           onSelect={(color) => editor.chain().focus().setColor(color).run()}
           onClear={() => editor.chain().focus().unsetColor().run()}
+          active={editor.isActive('textStyle') && !!editor.getAttributes('textStyle').color}
         >
           <Type size={15} />
+        </ColorPopover>
+
+        <ColorPopover
+          title="背景颜色"
+          colors={PRESET_HIGHLIGHTS}
+          onSelect={(color) => editor.chain().focus().setHighlight({ color }).run()}
+          onClear={() => editor.chain().focus().unsetHighlight().run()}
+          active={editor.isActive('highlight')}
+        >
+          <Highlighter size={15} />
         </ColorPopover>
       </BubbleMenu>
 

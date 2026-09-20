@@ -66,6 +66,7 @@ export const api = {
   listNotes(params: {
     q?: string;
     categoryId?: string;
+    includeDescendants?: boolean;
     favorite?: boolean;
     tag?: string;
     importance?: string;
@@ -84,6 +85,7 @@ export const api = {
     const sp = new URLSearchParams();
     if (params.q) sp.set('q', params.q);
     if (params.categoryId) sp.set('categoryId', params.categoryId);
+    if (params.includeDescendants) sp.set('includeDescendants', 'true');
     if (params.favorite) sp.set('favorite', 'true')
     if (params.tag) sp.set('tag', params.tag);
     if (params.importance) sp.set('importance', params.importance);
@@ -193,6 +195,8 @@ export const api = {
     name: string;
     color?: string;
     icon?: string;
+    parentId?: string | null;
+    knowledgeAreaId?: string | null;
   }): Promise<{ category: CategoryDTO }> {
     return request('/api/categories', {
       method: 'POST',
@@ -202,7 +206,7 @@ export const api = {
 
   updateCategory(
     id: string,
-    input: Partial<{ name: string; color: string; icon: string; pinned: boolean; order: number }>
+    input: Partial<{ name: string; color: string; icon: string; pinned: boolean; order: number; parentId: string | null; knowledgeAreaId: string | null }>
   ): Promise<{ category: CategoryDTO }> {
     return request(`/api/categories/${id}`, {
       method: 'PUT',
