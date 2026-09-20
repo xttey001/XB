@@ -122,3 +122,39 @@ export function calcEbbinghausNext(step: number): { date: Date; nextStep: number
 export function getEbbinghausDays(step: number): number {
   return EBBINGHAUS_INTERVALS[step] ?? EBBINGHAUS_INTERVALS[0];
 }
+
+// ===== 分类层级树 =====
+import type { CategoryDTO } from './types';
+
+export interface CategoryTreeNode extends CategoryDTO {
+  children: CategoryTreeNode[];
+}
+
+/** 扁平分类数组 → 两层树（复用给侧边栏、下拉选择器等） */
+export function buildCategoryTree(flat: CategoryDTO[]): CategoryTreeNode[] {
+  const map = new Map<string, CategoryTreeNode>();
+  flat.forEach((c) => map.set(c.id, { ...c, children: [] }));
+  const roots: CategoryTreeNode[] = [];
+  for (const node of map.values()) {
+    if (node.parentId && map.has(node.parentId)) {
+      map.get(node.parentId)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (a: CategoryTreeNode, b: CategoryTreeNode) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.order !== b.order) return b.order - a.order;
+    return a.createdAt.localeCompare(b.createdAt);
+  };
+  roots.sort(sort);
+  for (const node of map.values()) node.children.sort(sort);
+  return roots;
+}
+
+/** 查找某个分类的父分类 ID */
+export function getParentId(categories: CategoryDTO[], categoryId: string | null | undefined): string | null {
+  if (!categoryId) return null;
+  const target = categories.find((c) => c.id === categoryId);
+  return target?.parentId ?? null;
+}

@@ -7,7 +7,7 @@ import { zhCN } from 'date-fns/locale';
 import ImageUploader from './ImageUploader';
 import TiptapEditor from './TiptapEditor';
 import { api } from '@/lib/api';
-import { cn, isEmptyHtml, getEbbinghausDays } from '@/lib/utils';
+import { cn, isEmptyHtml, getEbbinghausDays, buildCategoryTree, getParentId, isImageIcon } from '@/lib/utils';
 import { IMPORTANCE_CONFIG } from '@/lib/importance';
 import type { CategoryDTO, NoteDTO, NoteImportance } from '@/lib/types';
 
@@ -59,6 +59,10 @@ export default function NoteEditor({
   const [showUploader, setShowUploader] = useState(false);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const [importanceDropdownOpen, setImportanceDropdownOpen] = useState(false);
+  // 两级面板：当前展开的父分类 ID（null 表示未展开或空分类）
+  const [activeParentId, setActiveParentId] = useState<string | null>(
+    getParentId(categories, initialNote?.categoryId)
+  );
   const categoryRef = useRef<HTMLDivElement>(null);
   const importanceRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLDivElement>(null);
@@ -262,35 +266,98 @@ export default function NoteEditor({
               <ChevronDown size={12} className={cn('transition-transform', categoryDropdownOpen && 'rotate-180')} />
             </button>
             {categoryDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-ink-200 rounded-lg shadow-lg py-1 min-w-[160px] max-h-[280px] overflow-y-auto">
-                <button
-                  type="button"
-                  onClick={() => { setCategoryId(null); setCategoryDropdownOpen(false); }}
-                  className={cn(
-                    'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
-                    !categoryId && 'bg-ink-50 text-ink-900'
-                  )}
-                >
-                  未分类
-                </button>
-                {categories.map((c) => (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-ink-200 rounded-lg shadow-lg min-w-[320px] flex">
+                {/* 左栏：父分类 */}
+                <div className="w-[140px] border-r border-ink-100 py-1 max-h-[280px] overflow-y-auto">
                   <button
-                    key={c.id}
                     type="button"
-                    onClick={() => { setCategoryId(c.id); setCategoryDropdownOpen(false); }}
+                    onClick={() => { setCategoryId(null); setCategoryDropdownOpen(false); }}
                     className={cn(
                       'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
-                      categoryId === c.id && 'bg-ink-50 text-ink-900'
+                      !categoryId && 'bg-ink-50 text-ink-900'
                     )}
                   >
-                    {c.icon && (c.icon || '').trim().startsWith('/') ? (
-                      <img src={c.icon.trim()} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
-                    ) : (
-                      <span className="flex-shrink-0">{c.icon}</span>
-                    )}
-                    <span className="truncate">{c.name}</span>
+                    <span className="w-4 text-center">⊘</span>
+                    <span>未分类</span>
                   </button>
-                ))}
+                  {(() => {
+                    const tree = buildCategoryTree(categories);
+                    return tree.map((parent) => {
+                      const isActive = activeParentId === parent.id;
+                      const hasChildren = parent.children.length > 0;
+                      return (
+                        <button
+                          key={parent.id}
+                          type="button"
+                          onClick={() => {
+                            if (hasChildren) {
+                              setActiveParentId(parent.id);
+                            } else {
+                              // 无子分类，本身就是可选的叶子
+                              setCategoryId(parent.id);
+                              setCategoryDropdownOpen(false);
+                            }
+                          }}
+                          className={cn(
+                            'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
+                            isActive && 'bg-ink-50 text-ink-900',
+                            categoryId === parent.id && !hasChildren && 'bg-ink-100 text-ink-900'
+                          )}
+                        >
+                          {isImageIcon(parent.icon) ? (
+                            <img src={parent.icon!.trim()} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                          ) : (
+                            <span className="flex-shrink-0 w-4 text-center">{parent.icon}</span>
+                          )}
+                          <span className="truncate flex-1">{parent.name}</span>
+                          {hasChildren && (
+                            <ChevronDown size={11} className={cn('transition-transform', isActive ? 'rotate-[-90deg]' : '')} />
+                          )}
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* 右栏：子分类 */}
+                <div className="w-[180px] py-1 max-h-[280px] overflow-y-auto">
+                  {(() => {
+                    const tree = buildCategoryTree(categories);
+                    const activeParent = tree.find((p) => p.id === activeParentId);
+                    if (!activeParent || activeParent.children.length === 0) {
+                      return (
+                        <div className="px-3 py-4 text-xs text-ink-400 text-center">
+                          选择左侧分类查看子分类
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        <div className="px-3 py-1.5 text-[10px] text-ink-400 font-medium border-b border-ink-100">
+                          {activeParent.name} 的子分类
+                        </div>
+                        {activeParent.children.map((child) => (
+                          <button
+                            key={child.id}
+                            type="button"
+                            onClick={() => { setCategoryId(child.id); setCategoryDropdownOpen(false); }}
+                            className={cn(
+                              'w-full text-left px-3 py-2 text-xs hover:bg-ink-50 flex items-center gap-2',
+                              categoryId === child.id && 'bg-ink-100 text-ink-900 font-medium'
+                            )}
+                          >
+                            {isImageIcon(child.icon) ? (
+                              <img src={child.icon!.trim()} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                            ) : (
+                              <span className="flex-shrink-0 w-4 text-center">{child.icon}</span>
+                            )}
+                            <span className="truncate">{child.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>
