@@ -12,6 +12,7 @@ interface NoteReviewButtonProps {
   reviewAt: string | null;
   reviewRepeat: string | null;
   reviewStep?: number;
+  scope?: string;
   onUpdated: (note: any) => void;
   onOpenReviewModal?: () => void;
 }
@@ -63,6 +64,7 @@ export default function NoteReviewButton({
   reviewAt,
   reviewRepeat,
   reviewStep = 0,
+  scope,
   onUpdated,
   onOpenReviewModal,
 }: NoteReviewButtonProps) {
@@ -101,6 +103,7 @@ export default function NoteReviewButton({
         reviewRepeat: nextRepeat,
         reviewStep: effectiveStep ?? 0,
         reviewLastSent: null,
+        ...(scope && { scope }),
       });
       onUpdated(note);
       setShowMenu(false);

@@ -14,19 +14,19 @@ export const PRESET_COLORS = [
   '#3B82F6',
   '#8B5CF6',
   '#EC4899',
-  '#6B7280',
+  '#FFFFFF',
 ];
 
 export const PRESET_HIGHLIGHTS = [
-  '#FEE2E2',
-  '#FFEDD5',
-  '#FEF9C3',
-  '#DCFCE7',
-  '#CFFAFE',
-  '#DBEAFE',
-  '#EDE9FE',
-  '#FCE7F3',
-  '#E5E7EB',
+  '#F87171',
+  '#FB923C',
+  '#FACC15',
+  '#4ADE80',
+  '#22D3EE',
+  '#60A5FA',
+  '#A78BFA',
+  '#F472B6',
+  '#000000',
 ];
 
 interface ColorPopoverProps {

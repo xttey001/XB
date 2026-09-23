@@ -75,7 +75,7 @@ export default function NoteCard({
 
   // 列表优先显示摘要：summary 存在且被截断时显示纯文本摘要 + 查看全文
   // 若内容包含高亮块、标题、列表、引用、代码块、图片等富文本块，则保留完整 HTML，避免摘要丢失格式
-  const hasRichBlock = /data-callout|<h[1-6]\b|<ul\b|<ol\b|<blockquote\b|<pre\b|<code\b|<img\b/i.test(
+  const hasRichBlock = /data-callout|<h[1-6]\b|<ul\b|<ol\b|<blockquote\b|<pre\b|<code\b|<img\b|<span\b|<mark\b/i.test(
     note.content
   );
   const displaySummary =
@@ -92,6 +92,7 @@ export default function NoteCard({
     try {
       const { note: updated } = await api.updateNote(note.id, {
         isFavorite: !note.isFavorite,
+        scope,
       });
       onUpdated(updated);
     } catch (e: any) {
@@ -160,6 +161,7 @@ export default function NoteCard({
     try {
       const { note: updated } = await api.updateNote(note.id, {
         importance: next,
+        scope,
       });
       onUpdated(updated);
     } catch (e: any) {
@@ -182,6 +184,16 @@ export default function NoteCard({
     }
   };
 
+  /** 进详情页：先给当前 history entry 加 anchor 参数，再跳转 */
+  const goToDetail = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('anchor', note.id);
+      window.history.replaceState(null, '', url.toString());
+    } catch {}
+    router.push(`/note/${note.id}`);
+  };
+
   const handleCardClick = (e: React.MouseEvent) => {
     // 点击正文区域（非按钮、非图片、非链接）跳转到详情页
     const target = e.target as HTMLElement;
@@ -194,7 +206,7 @@ export default function NoteCard({
     ) {
       return;
     }
-    router.push(`/note/${note.id}`);
+    goToDetail();
   };
 
   if (editing) {
@@ -213,6 +225,7 @@ export default function NoteCard({
 
   return (
     <article
+      id={`note-${note.id}`}
       className={cn(
         'group relative rounded-lg border bg-white p-4 transition-colors animate-fade-in',
         note.pinned
@@ -269,6 +282,7 @@ export default function NoteCard({
             reviewAt={note.reviewAt}
             reviewRepeat={note.reviewRepeat}
             reviewStep={note.reviewStep}
+            scope={scope}
             onUpdated={onUpdated}
           />
           <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
@@ -422,7 +436,7 @@ export default function NoteCard({
       {/* 摘要截断或折叠时的"查看全文"按钮 */}
       {(displaySummary || shouldCollapse) && (
         <button
-          onClick={() => router.push(`/note/${note.id}`)}
+          onClick={() => goToDetail()}
           className="mt-1 inline-flex items-center gap-1 text-xs text-accent-600 hover:text-accent-700"
         >
           <Maximize2 size={11} />

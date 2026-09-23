@@ -985,4 +985,148 @@ git config --global --list | findstr proxy
 git config --list | findstr proxy
 ```
 
-**最后更新**：2026-09-05
+**最后更新**：2026-09-23
+
+## 25. Next.js App Router 滚动恢复三件事：URL anchor + scroll:false 显式重置 + filter 区分
+
+### 问题场景
+
+1. **详情页返回列表页回到顶部**：点击子分类第 4 篇卡片进详情，点返回后直接回到列表顶部，不是第 4 篇卡片位置
+2. **不同子分类滚动位置串页**：在 ICT 分类滚到中间，切到 MTM（从没看过），却还停在 ICT 的滚动位置
+
+### 踩过的坑（三种方案都没解决）
+
+| 方案 | 为什么不行 |
+|------|-----------|
+| **sessionStorage 存 scrollY** | 跟 Next.js App Router 内置 scroll 恢复打架；`window.scrollTo` 时机不确定；filterToQuery('all')=空串可能串 key |
+| **简单 anchor（没保留 URL 非 filter 参数）** | `router.back()` 回来 URL 带着 `anchor=note_n4`，但主页 filter 同步 useEffect 立即 `router.replace("/?f=category&id=ict")` **把 anchor 整个干掉了** |
+| **简单 anchor + scroll:false** | `router.replace(..., { scroll: false })` 就是"完全不碰滚动"，手动切分类时旧 scrollY 原样保留 |
+
+### 最终方案（三件事缺一不可）
+
+#### 1. URL anchor 参数实现"返回精准定位到卡片"
+
+**原理**：点击卡片进详情前，用 `replaceState` 给当前 history entry 加 `anchor=笔记ID`；详情页返回时，浏览器 history 栈里的主页 URL 带着 anchor，主页加载完读出来滚到对应元素。
+
+**Step 1 - NoteCard 点进详情前写 anchor**（`components/NoteCard.tsx`）：
+
+```tsx
+const goToDetail = () => {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('anchor', note.id);
+    window.history.replaceState(null, '', url.toString()); // 改当前 entry，不触发重渲染
+  } catch {}
+  router.push(`/note/${note.id}`);
+};
+```
+
+**Step 2 - NoteCard 外层加 id**（`components/NoteCard.tsx`）：
+
+```tsx
+<article id={`note-${note.id}`} className={cn(...)}>
+```
+
+**Step 3 - 主页 loading 完成后滚到 anchor**（`app/page.tsx`）：
+
+```tsx
+const loadingPrevRef = useRef(true);
+const anchorConsumedRef = useRef<string | null>(null);
+
+useEffect(() => {
+  if (loadingPrevRef.current && !loading) {
+    const anchor = searchParams.get('anchor');
+    if (anchor && anchor !== anchorConsumedRef.current) {
+      anchorConsumedRef.current = anchor;
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`note-${anchor}`);
+        if (el) el.scrollIntoView({ behavior: 'auto', block: 'center' });
+        // 消费完清掉 anchor，避免刷新又滚
+        const url = new URL(window.location.href);
+        url.searchParams.delete('anchor');
+        window.history.replaceState(null, '', url.toString());
+      });
+    }
+  }
+  loadingPrevRef.current = loading;
+}, [loading, searchParams]);
+```
+
+#### 2. buildFilterUrl 必须保留非 filter 参数（anchor 等）
+
+**致命 bug 教训**：`filterToQuery(filter)` 只输出 `/?f=category&id=xxx`，**完全不管 URL 上已有的 anchor**。router.replace 一执行，anchor 参数就被干掉了，后面 anchor 恢复代码自然读不到。
+
+**正确做法**：`buildFilterUrl(f, existingSp, filterChanged)` 接收当前 URL 的 `searchParams`，**先保留非 filter 参数**，再写 filter 参数；如果 filter 变了，anchor（绑定特定 filter）要清掉：
+
+```tsx
+const FILTER_PARAM_KEYS = new Set(['f', 'id']); // 只有这俩是 filter 控制的
+
+const buildFilterUrl = (f, existingSp, filterChanged) => {
+  const url = new URL(window.location.href);
+  url.search = '';
+  // 保留非 filter 参数，但若 filter 变了 → 清 anchor
+  existingSp.forEach((v, k) => {
+    if (FILTER_PARAM_KEYS.has(k)) return;
+    if (k === 'anchor' && filterChanged) return;
+    url.searchParams.set(k, v);
+  });
+  // 写 filter 参数
+  if (f.type !== 'all') {
+    if (f.type === 'category') {
+      url.searchParams.set('f', 'category');
+      url.searchParams.set('id', f.id);
+    } else {
+      url.searchParams.set('f', f.type);
+    }
+  }
+  return url.searchParams.toString() ? `?${url.searchParams.toString()}` : '';
+};
+```
+
+#### 3. filter 变化时分两种情况显式控制滚动
+
+**关键认知**：`router.replace(..., { scroll: false })` 是"完全不碰滚动"——既不重置到顶部，也不恢复。所以：
+- **手动切分类**（filterChanged=true）→ 必须显式 `window.scrollTo({ top: 0 })`
+- **浏览器 back/forward**（filter 没变）→ **不碰滚动**（等 anchor 恢复逻辑滚到正确位置）
+
+```tsx
+useEffect(() => {
+  const filterChanged = isFilterChanged(filter, searchParams);
+  const expected = buildFilterUrl(filter, searchParams, filterChanged);
+  const actual = searchParams.toString() ? `?${searchParams.toString()}` : '';
+  if (expected !== actual) {
+    urlSyncingRef.current = true;
+    router.replace(expected, { scroll: false });
+    // 手动切分类 → 显式重置滚动（scroll:false 不会帮我们滚）
+    if (filterChanged) {
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+    }
+  } else {
+    urlSyncingRef.current = false;
+  }
+}, [filter, router, searchParams, buildFilterUrl, isFilterChanged]);
+```
+
+### 场景走查表
+
+| 场景 | filterChanged | anchor 处理 | scroll 处理 | 结果 |
+|------|--------------|------------|------------|------|
+| ICT 滚中间 → 进详情 → 返回 | false（back，filter 没变） | **保留**（在 URL 上） | **不重置**（等 anchor 恢复） | ✅ 回到那篇卡片 |
+| ICT → 切到 MTM（从没看过） | true | **清掉**（filter 变了） | **显式滚到顶部** | ✅ MTM 从顶部开始 |
+| MTM → 切回 ICT | true | ICT anchor 已清 / 本次 buildFilterUrl 清 | **显式滚到顶部** | ✅ ICT 从顶部开始 |
+| 同一分类内刷新 | 不触发 replace | — | — | ✅ 正常 |
+
+### 关键改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `components/NoteCard.tsx` | 新增 `goToDetail()` + 外层 `<article id="note-{id}">` |
+| `app/page.tsx` | `filterToQuery` → `isFilterChanged` + `buildFilterUrl` + anchor 恢复 useEffect + filterChanged 时显式滚顶 |
+
+### 经验教训总结
+
+1. **anchor > sessionStorage**：URL 参数天然跟随浏览器 history，不存在串页问题
+2. **buildFilterUrl 不能丢参数**：任何 router.replace 构造的 URL 必须从当前 URL searchParams 出发，手动保留非 filter 参数
+3. **scroll:false 不是"保持当前位置"**：是"完全不管"——手动切 filter 时必须自己滚
+4. **anchor 绑定 filter**：ICT 分类的 anchor 在 MTM 分类没意义，filter 变了必须清 anchor
+5. **loadingPrevRef 用 true→false 当触发条件**：App Router 缓存组件，不要依赖"组件重新挂载"

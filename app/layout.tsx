@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Fraunces, IBM_Plex_Sans } from 'next/font/google';
 import './globals.css';
+import BackToTop from '@/components/BackToTop';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -27,7 +28,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" className={`${fraunces.variable} ${plex.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        {children}
+        <BackToTop />
+      </body>
     </html>
   );
 }

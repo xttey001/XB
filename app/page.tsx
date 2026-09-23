@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   PenLine,
   Loader2,
@@ -40,9 +40,116 @@ type Filter =
 
 export default function HomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [notes, setNotes] = useState<NoteDTO[]>([]);
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
-  const [filter, setFilter] = useState<Filter>({ type: 'all' });
+
+  // ===== Filter ↔ URL query 同步 =====
+  const FILTER_PARAM_KEYS = new Set(['f', 'id']); // 只有这俩是 filter 控制的
+  const parseFilterFromUrl = (sp: URLSearchParams): Filter => {
+    const f = sp.get('f');
+    const id = sp.get('id') || undefined;
+    if (f === 'category' && id) return { type: 'category', id, label: '' };
+    if (f === 'favorite') return { type: 'favorite' };
+    if (f === 'important') return { type: 'important' };
+    if (f === 'veryImportant') return { type: 'veryImportant' };
+    if (f === 'liked') return { type: 'liked' };
+    if (f === 'reposted') return { type: 'reposted' };
+    if (f === 'allPinned') return { type: 'allPinned' };
+    if (f === 'reviewed') return { type: 'reviewed' };
+    return { type: 'all' };
+  };
+
+  /** 判断 filter 是否真的变了（用 URL 上的当前 filter 参数对比目标 filter） */
+  const isFilterChanged = useCallback(
+    (f: Filter, existingSp: URLSearchParams): boolean => {
+      const oldF = existingSp.get('f');
+      const oldId = existingSp.get('id');
+      const newF =
+        f.type === 'all'
+          ? null
+          : f.type === 'category'
+          ? 'category'
+          : f.type;
+      const newId = f.type === 'category' ? f.id : null;
+      return oldF !== newF || oldId !== newId;
+    },
+    []
+  );
+
+  /** 用 filter 值 + 当前 URL 上已有的非 filter 参数，构造新的 query string */
+  const buildFilterUrl = useCallback(
+    (f: Filter, existingSp: URLSearchParams, filterChanged: boolean): string => {
+      const url = new URL(window.location.href);
+      url.search = ''; // 清空
+
+      // 保留非 filter 参数，但若 filter 变了 → 清掉 anchor（它绑定特定 filter）
+      existingSp.forEach((v, k) => {
+        if (FILTER_PARAM_KEYS.has(k)) return;
+        if (k === 'anchor' && filterChanged) return;
+        url.searchParams.set(k, v);
+      });
+
+      // 写 filter 参数
+      if (f.type !== 'all') {
+        if (f.type === 'category') {
+          url.searchParams.set('f', 'category');
+          url.searchParams.set('id', f.id);
+        } else {
+          url.searchParams.set('f', f.type);
+        }
+      }
+      const qs = url.searchParams.toString();
+      return qs ? `?${qs}` : '';
+    },
+    []
+  );
+
+  const [filter, setFilter] = useState<Filter>(() => parseFilterFromUrl(searchParams));
+  const urlSyncingRef = useRef(false); // 防止自己写 URL 又触发自己 setState
+
+  // filter 变化 → 写 URL（保留 anchor 等非 filter 参数）
+  useEffect(() => {
+    const filterChanged = isFilterChanged(filter, searchParams);
+    const expected = buildFilterUrl(filter, searchParams, filterChanged);
+    const actual = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    if (expected !== actual) {
+      urlSyncingRef.current = true;
+      router.replace(expected, { scroll: false });
+      // 手动切分类（不是浏览器 back/forward）→ 显式重置滚动
+      // 因为我们传了 scroll: false，Next.js 不会帮我们滚
+      if (filterChanged) {
+        requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+      }
+    } else {
+      urlSyncingRef.current = false;
+    }
+  }, [filter, router, searchParams, buildFilterUrl, isFilterChanged]);
+
+  // URL 变化 → 读 filter（浏览器前进/后退）
+  useEffect(() => {
+    if (urlSyncingRef.current) return; // 自己刚写的，跳过
+    const next = parseFilterFromUrl(searchParams);
+    setFilter((prev) => {
+      // 深比较，避免无意义更新
+      if (prev.type !== next.type) return next;
+      if (prev.type === 'category' && next.type === 'category') {
+        if (prev.id !== next.id) return next;
+      }
+      return prev;
+    });
+  }, [searchParams]);
+
+  // categories 加载完后，补全 category filter 的 label
+  useEffect(() => {
+    setFilter((prev) => {
+      if (prev.type === 'category' && prev.id && (!prev.label || prev.label === '')) {
+        const cat = categories.find((c) => c.id === prev.id);
+        if (cat) return { ...prev, label: cat.name };
+      }
+      return prev;
+    });
+  }, [categories]);
   const [sortBy, setSortBy] = useState<SortBy>('createdAt');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -55,6 +162,32 @@ export default function HomePage() {
   const [dailyStats, setDailyStats] = useState<DailyStatsDTO[]>([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+  // ===== Anchor 恢复：URL 带 anchor=noteId 时，加载完滚到那个卡片 =====
+  // 这是"从详情页返回"的核心机制：详情页返回时，浏览器 history 栈里的主页 URL
+  // 会带着 anchor 参数（NoteCard 点击进详情前用 replaceState 写入的）
+  const loadingPrevRef = useRef(true);
+  const anchorConsumedRef = useRef<string | null>(null); // 避免同一 anchor 被重复消费
+
+  useEffect(() => {
+    if (loadingPrevRef.current && !loading) {
+      const anchor = searchParams.get('anchor');
+      if (anchor && anchor !== anchorConsumedRef.current) {
+        anchorConsumedRef.current = anchor;
+        requestAnimationFrame(() => {
+          const el = document.getElementById(`note-${anchor}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'auto', block: 'center' });
+          }
+          // 消费完清掉 URL 里的 anchor，避免刷新又滚
+          const url = new URL(window.location.href);
+          url.searchParams.delete('anchor');
+          window.history.replaceState(null, '', url.toString());
+        });
+      }
+    }
+    loadingPrevRef.current = loading;
+  }, [loading, searchParams]);
 
   const {
     reminders,

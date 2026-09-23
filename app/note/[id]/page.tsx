@@ -186,6 +186,14 @@ export default function NoteDetailPage() {
           ) : (
             <Link
               href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                if (window.history.length > 1) {
+                  router.back();
+                } else {
+                  router.push('/');
+                }
+              }}
               className="inline-flex items-center gap-1.5 p-2 -ml-2 rounded-md hover:bg-ink-100 text-ink-600"
             >
               <ArrowLeft size={18} />
