@@ -33,9 +33,15 @@ import {
   Lightbulb,
   Link as LinkIcon,
   Highlighter,
+  Palette,
 } from 'lucide-react';
 import { cn, isHtmlContent } from '@/lib/utils';
-import ColorPopover, { PRESET_COLORS, PRESET_HIGHLIGHTS } from './ColorPopover';
+import ColorPopover, {
+  PRESET_COLORS,
+  PRESET_HIGHLIGHTS,
+  TEXT_STYLE_PRESETS,
+  TextStylePopover,
+} from './ColorPopover';
 import Callout from '@/lib/tiptap-callout';
 import NoteLinkDialog from './NoteLinkDialog';
 
@@ -339,6 +345,23 @@ export default function TiptapEditor({
         >
           <Highlighter size={15} />
         </ColorPopover>
+
+        <ToolbarDivider />
+
+        <TextStylePopover
+          title="样式预设"
+          presets={TEXT_STYLE_PRESETS}
+          onSelect={(preset) =>
+            editor
+              .chain()
+              .focus()
+              .setColor(preset.color)
+              .setHighlight({ color: preset.bg })
+              .run()
+          }
+        >
+          <Palette size={15} />
+        </TextStylePopover>
       </BubbleMenu>
 
     </div>

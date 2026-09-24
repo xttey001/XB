@@ -12,7 +12,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { format, getYear, getMonth } from 'date-fns';
-import { api, type SortBy, type Scope } from '@/lib/api';
+import { api, type SortBy, type OrderDir, type Scope } from '@/lib/api';
 import type { NoteDTO, CategoryDTO, DailyStatsDTO } from '@/lib/types';
 import NoteEditor from '@/components/NoteEditor';
 import NoteCard from '@/components/NoteCard';
@@ -151,6 +151,7 @@ export default function HomePage() {
     });
   }, [categories]);
   const [sortBy, setSortBy] = useState<SortBy>('createdAt');
+  const [orderDir, setOrderDir] = useState<OrderDir>('desc');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -253,6 +254,7 @@ export default function HomePage() {
       try {
         const params: Parameters<typeof api.listNotes>[0] = {
           sortBy,
+          orderDir,
           scope: currentScope,
           withSocial: true,
           limit: 20,
@@ -282,7 +284,7 @@ export default function HomePage() {
         else setLoading(false);
       }
     },
-    [filter, sortBy, currentScope, importanceFilter, dateFilter]
+    [filter, sortBy, orderDir, currentScope, importanceFilter, dateFilter]
   );
 
   const loadDailyStats = useCallback(async () => {
@@ -451,60 +453,6 @@ export default function HomePage() {
     }
   };
 
-  /**
-   * 自定义排序模式下的"上移/下移"操作
-   * 由于 API 排序是 desc（order 大的在前），上移=增大 order，下移=减小 order
-   * 交换相邻笔记的位置和 order 值
-   */
-  const handleMove = async (noteId: string, direction: 'up' | 'down') => {
-    // liked 和 reposted 视图不支持自定义排序
-    if (currentScope === 'liked' || currentScope === 'reposted') return;
-
-    const idx = notes.findIndex((n) => n.id === noteId);
-    if (idx < 0) return;
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= notes.length) return;
-
-    const a = notes[idx];
-    const b = notes[swapIdx];
-
-    // 获取对应的 order 字段
-    const orderField =
-      currentScope === 'favorite'
-        ? 'favoriteOrder'
-        : currentScope === 'important' || currentScope === 'veryImportant'
-        ? 'importantOrder'
-        : currentScope === 'category'
-        ? 'categoryOrder'
-        : currentScope === 'allPinned'
-        ? 'globalOrder'
-        : 'globalOrder';
-
-    // 在前端交换笔记位置和 order 值，让 UI 立即响应
-    const newNotes = [...notes];
-    const aOrder = (a as any)[orderField];
-    const bOrder = (b as any)[orderField];
-    
-    // 交换笔记位置（将 b 放到 idx 位置，a 放到 swapIdx 位置）
-    newNotes[idx] = { ...b, [orderField]: aOrder };
-    newNotes[swapIdx] = { ...a, [orderField]: bOrder };
-    setNotes(newNotes);
-
-    // 后端持久化
-    try {
-      await api.reorderNotes({
-        scope: currentScope,
-        items: [
-          { id: a.id, order: bOrder },
-          { id: b.id, order: aOrder },
-        ],
-      });
-    } catch (e: any) {
-      alert(e.message || '调整顺序失败');
-      loadNotes(); // 失败时重新加载
-    }
-  };
-
   const title =
     filter.type === 'all'
       ? '全部笔记'
@@ -523,8 +471,6 @@ export default function HomePage() {
       : filter.type === 'reposted'
       ? '转发'
       : '分类';
-
-  const showOrderControls = sortBy === 'custom' && currentScope !== 'liked' && currentScope !== 'reposted';
 
   // 统计置顶数量（用于UI分隔提示）
   const pinnedCount = notes.filter((n) => n.pinned).length;
@@ -627,7 +573,7 @@ export default function HomePage() {
               <h2 className="text-sm font-medium text-ink-600">{title}</h2>
               <span className="text-xs text-ink-400">{total} 条</span>
             </div>
-            <SortToggle value={sortBy} onChange={setSortBy} />
+            <SortToggle value={sortBy} orderDir={orderDir} onChange={setSortBy} onToggleDir={() => setOrderDir(d => d === 'desc' ? 'asc' : 'desc')} />
           </div>
 
           {/* 单日汇总 */}
@@ -676,24 +622,17 @@ export default function HomePage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {showOrderControls && pinnedCount > 0 && (
+              {pinnedCount > 0 && (
                 <div className="text-[11px] text-ink-400 px-1 flex items-center gap-1">
                   <Pin size={9} fill="currentColor" className="text-accent-500" />
                   置顶 ({pinnedCount})
                 </div>
               )}
               {notes.map((note, idx) => {
-                const isFirstPinned = note.pinned && idx === 0;
-                const isLastPinned =
-                  note.pinned && idx === pinnedCount - 1;
-                const isFirstNormal = !note.pinned && idx === pinnedCount;
-                const isLast = idx === notes.length - 1;
-
                 return (
                   <div key={note.id}>
                     {/* 置顶与普通笔记之间的分隔线 */}
-                    {showOrderControls &&
-                      idx > 0 &&
+                    {idx > 0 &&
                       !notes[idx - 1].pinned &&
                       note.pinned && (
                         <div className="text-[11px] text-ink-400 px-1 py-2 flex items-center gap-1">
@@ -701,8 +640,7 @@ export default function HomePage() {
                           置顶
                         </div>
                       )}
-                    {showOrderControls &&
-                      idx > 0 &&
+                    {idx > 0 &&
                       notes[idx - 1].pinned &&
                       !note.pinned && (
                         <div className="text-[11px] text-ink-400 px-1 py-2">
@@ -716,23 +654,10 @@ export default function HomePage() {
                       onDeleted={handleNoteDeleted}
                       onReposted={handleNoteCreated}
                       scope={currentScope}
-                      showOrderControls={showOrderControls}
-                      onMove={handleMove}
-                      isFirst={
-                        showOrderControls &&
-                        (note.pinned ? isFirstPinned : isFirstNormal)
-                      }
-                      isLast={showOrderControls && isLast}
                     />
                   </div>
                 );
               })}
-
-              {showOrderControls && notes.length > 0 && (
-                <p className="text-[11px] text-ink-400 text-center pt-2">
-                  提示：用笔记右上角的 ↑↓ 按钮调整顺序
-                </p>
-              )}
 
               {/* 加载更多 */}
               {!loading && notes.length > 0 && (

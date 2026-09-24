@@ -33,7 +33,8 @@ async function request<T>(
   return data as T;
 }
 
-export type SortBy = 'createdAt' | 'updatedAt' | 'custom';
+export type SortBy = 'createdAt' | 'updatedAt';
+export type OrderDir = 'asc' | 'desc';
 export type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
 
 export interface NoteLinkResult {
@@ -74,6 +75,7 @@ export const api = {
     reposted?: boolean;
     veryImportant?: boolean;
     sortBy?: SortBy;
+    orderDir?: OrderDir;
     scope?: Scope;
     startDate?: string;
     endDate?: string;
@@ -93,6 +95,7 @@ export const api = {
     if (params.reposted) sp.set('reposted', 'true');
     if (params.veryImportant) sp.set('veryImportant', 'true');
     if (params.sortBy) sp.set('sortBy', params.sortBy);
+    if (params.orderDir) sp.set('orderDir', params.orderDir);
     if (params.scope) sp.set('scope', params.scope);
     if (params.startDate) sp.set('startDate', params.startDate);
     if (params.endDate) sp.set('endDate', params.endDate);

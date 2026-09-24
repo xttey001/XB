@@ -4,7 +4,8 @@ import { parseJsonArray, stringifyJsonArray, generateSummary, getEbbinghausDays 
 import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
-type SortBy = 'createdAt' | 'updatedAt' | 'custom';
+type SortBy = 'createdAt' | 'updatedAt';
+type OrderDir = 'asc' | 'desc';
 type Scope = 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
 
 /** 根据重复频率计算下次回顾日期（防御性兜底） */
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
   const reposted = searchParams.get('reposted') === 'true';
   const veryImportant = searchParams.get('veryImportant') === 'true';
   const sortBy = (searchParams.get('sortBy') as SortBy) || 'createdAt';
+  const orderDir = (searchParams.get('orderDir') as OrderDir) || 'desc';
   const scope = (searchParams.get('scope') as Scope) || 'all';
   const startDate = searchParams.get('startDate');
   const endDate = searchParams.get('endDate');
@@ -164,24 +166,7 @@ export async function GET(req: NextRequest) {
     where.reviewAt = { lte: now };
   }
 
-  const orderField =
-    sortBy === 'custom'
-      ? scope === 'favorite'
-        ? 'favoriteOrder'
-        : scope === 'important'
-        ? 'importantOrder'
-        : scope === 'veryImportant'
-        ? 'importantOrder'
-        : scope === 'category'
-        ? 'categoryOrder'
-        : scope === 'liked'
-        ? 'likedPinOrder'
-        : scope === 'reposted'
-        ? 'repostedPinOrder'
-        : scope === 'allPinned'
-        ? 'globalPinOrder'
-        : 'globalOrder'
-      : sortBy;
+  const orderField = sortBy;
 
   const pinnedField =
     scope === 'favorite'
@@ -220,7 +205,7 @@ export async function GET(req: NextRequest) {
   const baseOrderBy =
     scope === 'reviewed'
       ? [{ reviewAt: 'asc' as const }]
-      : [{ [pinnedField]: 'desc' as const }, { [pinOrderField]: 'desc' as const }, { [orderField]: 'desc' as const }];
+      : [{ [pinnedField]: 'desc' as const }, { [pinOrderField]: 'desc' as const }, { [orderField]: orderDir }];
 
   const notes = await prisma.note.findMany({
     where,

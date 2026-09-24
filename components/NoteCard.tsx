@@ -10,8 +10,6 @@ import {
   Pin,
   Check,
   Loader2,
-  ChevronUp,
-  ChevronDown,
   Maximize2,
   ArrowUpToLine,
 } from 'lucide-react';
@@ -38,13 +36,6 @@ interface NoteCardProps {
   onReposted?: (newNote: NoteDTO) => void;
   /** 当前所在视图范围，决定置顶操作影响哪个置顶字段 */
   scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
-  /** 自定义排序模式下显示上移/下移按钮 */
-  showOrderControls?: boolean;
-  /** 排序方向，用于判断上移/下移的语义 */
-  onMove?: (noteId: string, direction: 'up' | 'down') => void;
-  /** 是否是第一条/最后一条（用于禁用对应按钮） */
-  isFirst?: boolean;
-  isLast?: boolean;
 }
 
 // 折叠时显示的最大行数（CSS line-clamp）
@@ -59,10 +50,6 @@ export default function NoteCard({
   onDeleted,
   onReposted,
   scope = 'all',
-  showOrderControls = false,
-  onMove,
-  isFirst = false,
-  isLast = false,
 }: NoteCardProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -286,45 +273,6 @@ export default function NoteCard({
             onUpdated={onUpdated}
           />
           <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
-          {/* 自定义排序模式下的上下移动按钮 */}
-          {showOrderControls && onMove && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMove(note.id, 'up');
-                }}
-                disabled={isFirst}
-                className={cn(
-                  'p-1.5 rounded transition-colors',
-                  isFirst
-                    ? 'text-ink-300 cursor-not-allowed'
-                    : 'text-ink-400 hover:bg-ink-100 hover:text-ink-700'
-                )}
-                title="上移"
-              >
-                <ChevronUp size={14} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMove(note.id, 'down');
-                }}
-                disabled={isLast}
-                className={cn(
-                  'p-1.5 rounded transition-colors',
-                  isLast
-                    ? 'text-ink-300 cursor-not-allowed'
-                    : 'text-ink-400 hover:bg-ink-100 hover:text-ink-700'
-                )}
-                title="下移"
-              >
-                <ChevronDown size={14} />
-              </button>
-              <div className="w-px h-4 bg-ink-200 mx-1" />
-            </>
-          )}
-
           <button
             onClick={handleTogglePin}
             disabled={togglingPin}
