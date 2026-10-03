@@ -36,7 +36,8 @@ type Filter =
   | { type: 'reposted' }
   | { type: 'allPinned' }
   | { type: 'reviewed' }
-  | { type: 'category'; id: string; label: string };
+  | { type: 'category'; id: string; label: string }
+  | { type: 'tag'; tagName: string; label: string };
 
 export default function HomePage() {
   const router = useRouter();
@@ -45,10 +46,12 @@ export default function HomePage() {
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
 
   // ===== Filter ↔ URL query 同步 =====
-  const FILTER_PARAM_KEYS = new Set(['f', 'id']); // 只有这俩是 filter 控制的
+  const FILTER_PARAM_KEYS = new Set(['f', 'id', 'tagName']); // 只有这三个是 filter 控制的
   const parseFilterFromUrl = (sp: URLSearchParams): Filter => {
     const f = sp.get('f');
     const id = sp.get('id') || undefined;
+    const tagName = sp.get('tagName') || undefined;
+    if (f === 'tag' && tagName) return { type: 'tag', tagName, label: tagName };
     if (f === 'category' && id) return { type: 'category', id, label: '' };
     if (f === 'favorite') return { type: 'favorite' };
     if (f === 'important') return { type: 'important' };
@@ -65,14 +68,18 @@ export default function HomePage() {
     (f: Filter, existingSp: URLSearchParams): boolean => {
       const oldF = existingSp.get('f');
       const oldId = existingSp.get('id');
+      const oldTagName = existingSp.get('tagName');
       const newF =
         f.type === 'all'
           ? null
           : f.type === 'category'
           ? 'category'
+          : f.type === 'tag'
+          ? 'tag'
           : f.type;
       const newId = f.type === 'category' ? f.id : null;
-      return oldF !== newF || oldId !== newId;
+      const newTagName = f.type === 'tag' ? f.tagName : null;
+      return oldF !== newF || oldId !== newId || oldTagName !== newTagName;
     },
     []
   );
@@ -95,6 +102,9 @@ export default function HomePage() {
         if (f.type === 'category') {
           url.searchParams.set('f', 'category');
           url.searchParams.set('id', f.id);
+        } else if (f.type === 'tag') {
+          url.searchParams.set('f', 'tag');
+          url.searchParams.set('tagName', f.tagName);
         } else {
           url.searchParams.set('f', f.type);
         }
@@ -135,6 +145,9 @@ export default function HomePage() {
       if (prev.type !== next.type) return next;
       if (prev.type === 'category' && next.type === 'category') {
         if (prev.id !== next.id) return next;
+      }
+      if (prev.type === 'tag' && next.type === 'tag') {
+        if (prev.tagName !== next.tagName) return next;
       }
       return prev;
     });
@@ -265,6 +278,7 @@ export default function HomePage() {
         if (filter.type === 'liked') params.liked = true;
         if (filter.type === 'reposted') params.reposted = true;
         if (filter.type === 'category') { params.categoryId = filter.id; params.includeDescendants = true; }
+        if (filter.type === 'tag') params.tag = filter.tagName;
         if (dateFilter?.type === 'single') {
           params.startDate = dateFilter.date;
           params.endDate = dateFilter.date;
@@ -360,6 +374,7 @@ export default function HomePage() {
         category: 'pinnedCategory',
         liked: 'pinnedLiked',
         reposted: 'pinnedReposted',
+        reviewed: 'pinnedGlobal',
       };
       const pinOrderFieldMap: Record<string, keyof NoteDTO> = {
         all: 'globalPinOrder',
@@ -369,6 +384,7 @@ export default function HomePage() {
         category: 'categoryPinOrder',
         liked: 'likedPinOrder',
         reposted: 'repostedPinOrder',
+        reviewed: 'globalPinOrder',
       };
       const orderFieldMap: Record<string, keyof NoteDTO> = {
         all: 'globalOrder',
@@ -378,6 +394,7 @@ export default function HomePage() {
         category: 'categoryOrder',
         liked: 'globalOrder',
         reposted: 'globalOrder',
+        reviewed: 'globalOrder',
       };
       
       const pinnedField = pinnedFieldMap[currentScope];
@@ -470,6 +487,8 @@ export default function HomePage() {
       ? '点赞'
       : filter.type === 'reposted'
       ? '转发'
+      : filter.type === 'tag'
+      ? filter.label || filter.tagName
       : '分类';
 
   // 统计置顶数量（用于UI分隔提示）
@@ -608,6 +627,8 @@ export default function HomePage() {
                   ? '还没有转发的笔记'
                   : filter.type === 'category'
                   ? '这个分类下还没有笔记'
+                  : filter.type === 'tag'
+                  ? `还没有带"${filter.tagName}"标签的笔记`
                   : '开始记录你的第一条笔记吧'}
               </p>
               {filter.type === 'all' && (

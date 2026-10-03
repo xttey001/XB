@@ -20,10 +20,11 @@ import {
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { CategoryDTO } from '@/lib/types';
+import IconEditor from '@/components/IconEditor';
 
 interface CategorySidebarProps {
   categories: CategoryDTO[];
-  selected: { type: 'all' | 'favorite' | 'important' | 'veryImportant' | 'liked' | 'reposted' | 'category' | 'tag' | 'allPinned' | 'reviewed'; id?: string; label?: string };
+  selected: { type: 'all' | 'favorite' | 'important' | 'veryImportant' | 'liked' | 'reposted' | 'category' | 'tag' | 'allPinned' | 'reviewed'; id?: string; label?: string; tagName?: string };
   onSelect: (sel: CategorySidebarProps['selected']) => void;
   onCategoriesChange: () => void;
   refreshKey?: number;
@@ -109,6 +110,7 @@ export default function CategorySidebar(props: CategorySidebarProps) {
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState(PRESET_COLORS[0]);
   const [editIcon, setEditIcon] = useState('🍥');
+  const [showIconEditor, setShowIconEditor] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -164,6 +166,7 @@ export default function CategorySidebar(props: CategorySidebarProps) {
       veryImportant: getCount({ importance: 'very_important' }),
       liked: getCount({ liked: true }),
       reposted: getCount({ reposted: true }),
+      aClassBuyPoint: getCount({ tag: 'A类买点' }),
     };
   }, [refreshKey]);
 
@@ -319,6 +322,7 @@ export default function CategorySidebar(props: CategorySidebarProps) {
     setEditName(c.name);
     setEditColor(c.color);
     setEditIcon(c.icon || '🍥');
+    setShowIconEditor(false);
   };
 
   const handleSaveEdit = async () => {
@@ -331,6 +335,7 @@ export default function CategorySidebar(props: CategorySidebarProps) {
         icon: editIcon,
       });
       setEditingId(null);
+      setShowIconEditor(false);
       onCategoriesChange();
     } catch (e: any) {
       alert(e.message);
@@ -460,13 +465,36 @@ export default function CategorySidebar(props: CategorySidebarProps) {
                 {PRESET_ICONS.map((i) => (
                   <button
                     key={i}
-                    onClick={() => setEditIcon(i)}
-                    className={cn('w-6 h-6 rounded text-sm flex items-center justify-center', editIcon === i ? 'bg-accent-100' : 'hover:bg-ink-100')}
+                    onClick={() => { setEditIcon(i); setShowIconEditor(false); }}
+                    className={cn('w-6 h-6 rounded text-sm flex items-center justify-center', editIcon === i && !showIconEditor ? 'bg-accent-100' : 'hover:bg-ink-100')}
                   >
                     {renderIcon(i)}
                   </button>
                 ))}
               </div>
+              {/* 当前图标预览 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-500">当前：</span>
+                <div className="w-6 h-6 rounded-full overflow-hidden bg-ink-100 flex items-center justify-center">
+                  {renderIcon(editIcon, 'w-full h-full')}
+                </div>
+                <span className="text-xs text-ink-400 truncate max-w-[80px]" title={editIcon}>{editIcon.startsWith('/') ? editIcon.split('/').pop() : editIcon}</span>
+              </div>
+              {/* 自定义图片图标入口 */}
+              {!showIconEditor ? (
+                <button
+                  type="button"
+                  onClick={() => setShowIconEditor(true)}
+                  className="w-full px-2 py-1 text-xs bg-ink-100 hover:bg-ink-200 rounded text-ink-700 transition-colors"
+                >
+                  🖼️ 用图片做图标（粘贴/拖入自动裁圆形）
+                </button>
+              ) : (
+                <IconEditor
+                  onSaved={(path) => { setEditIcon(path); setShowIconEditor(false); }}
+                  onCancel={() => setShowIconEditor(false)}
+                />
+              )}
               <div className="flex items-center justify-end gap-1">
                 <button onClick={() => setEditingId(null)} className="px-2 py-1 text-xs text-ink-500">取消</button>
                 <button onClick={handleSaveEdit} disabled={savingEdit} className="inline-flex items-center gap-1 px-3 py-1 text-xs bg-ink-900 text-white rounded disabled:bg-ink-300">
@@ -556,6 +584,7 @@ export default function CategorySidebar(props: CategorySidebarProps) {
     <aside className="w-full lg:w-64 lg:flex-shrink-0 space-y-4">
       <div className="space-y-1">
         <SidebarItem active={selected.type === 'all'} onClick={() => onSelect({ type: 'all' })} icon={<LayoutList size={15} />} label="全部笔记" count={countValues.all} />
+        <SidebarItem active={selected.type === 'tag' && selected.tagName === 'A类买点'} onClick={() => onSelect({ type: 'tag', tagName: 'A类买点', label: 'A类买点' })} icon={<span className="text-xs font-bold text-emerald-500">A</span>} label="A类买点" count={countValues.aClassBuyPoint} />
         <SidebarItem active={selected.type === 'reviewed'} onClick={() => onSelect({ type: 'reviewed' })} icon={<BookOpen size={15} />} label="回顾" count={countValues.review} />
         <SidebarItem active={selected.type === 'allPinned'} onClick={() => onSelect({ type: 'allPinned' })} icon={<Pin size={15} />} label="置顶" count={countValues.pinned} />
         <SidebarItem active={selected.type === 'favorite'} onClick={() => onSelect({ type: 'favorite' })} icon={<Star size={15} />} label="收藏" count={countValues.favorite} />

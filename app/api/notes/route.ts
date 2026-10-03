@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parseJsonArray, stringifyJsonArray, generateSummary, getEbbinghausDays } from '@/lib/utils';
+import { parseJsonArray, stringifyJsonArray, generateSummary, getEbbinghausDays, autoDetectTags } from '@/lib/utils';
 import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
@@ -379,11 +379,14 @@ export async function POST(req: NextRequest) {
   });
   const newOrder = (maxOrder._max.globalOrder ?? 0) + 1;
 
+  // 自动检测关键词 → 追加 tag（A类/A级 → A类买点）
+  const autoTags = autoDetectTags(body.content ?? '', body.tags ?? []);
+
   const note = await prisma.note.create({
     data: {
       content: body.content?.trim() || '',
       images: stringifyJsonArray(body.images ?? []),
-      tags: stringifyJsonArray(body.tags ?? []),
+      tags: stringifyJsonArray(autoTags),
       categoryId: body.categoryId ?? null,
       isFavorite: body.isFavorite ?? false,
       importance: body.importance ?? null,

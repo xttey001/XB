@@ -158,3 +158,32 @@ export function getParentId(categories: CategoryDTO[], categoryId: string | null
   const target = categories.find((c) => c.id === categoryId);
   return target?.parentId ?? null;
 }
+
+// ===== 自动关键词检测 → Tag 打标 =====
+
+/** 自动打 tag 的规则配置：关键词 → 要追加的 tag */
+const AUTO_TAG_RULES: { keywords: string[]; tag: string }[] = [
+  { keywords: ['A类', 'A级', 'a类', 'a级'], tag: 'A类买点' },
+];
+
+/**
+ * 根据笔记内容自动检测关键词，追加预设的 tag。
+ * - 已有相同 tag 不会重复添加
+ * - 只追加，不删除任何 tag
+ * @param content 笔记 HTML 内容
+ * @param existingTags 当前 tag 数组（JSON 解析后的）
+ * @returns 合并后的 tag 数组
+ */
+export function autoDetectTags(content: string, existingTags: string[]): string[] {
+  const plain = stripHtml(content || '');
+  const tags = new Set(existingTags || []);
+
+  for (const rule of AUTO_TAG_RULES) {
+    if (tags.has(rule.tag)) continue; // 已有就跳过
+    if (rule.keywords.some((kw) => plain.includes(kw))) {
+      tags.add(rule.tag);
+    }
+  }
+
+  return Array.from(tags);
+}

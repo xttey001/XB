@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parseJsonArray, stringifyJsonArray, getEbbinghausDays } from '@/lib/utils';
+import { parseJsonArray, stringifyJsonArray, getEbbinghausDays, autoDetectTags } from '@/lib/utils';
 import { syncNoteLinks } from '@/lib/link-parser';
 import type { NoteDTO, NoteInput } from '@/lib/types';
 
@@ -151,6 +151,14 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // === 自动检测关键词 → 追加 tag（当 content 或 tags 有变化时）===
+  let autoTagsStr: string | undefined;
+  if (body.content !== undefined || body.tags !== undefined) {
+    const baseTags = body.tags !== undefined ? body.tags : parseJsonArray(existing.tags);
+    const contentForDetect = body.content !== undefined ? body.content : existing.content;
+    autoTagsStr = stringifyJsonArray(autoDetectTags(contentForDetect, baseTags));
+  }
+
   // scope 决定更新哪个置顶字段和置顶排序字段
   const scope: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed' =
     body.scope || 'all';
@@ -201,7 +209,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         ...(body.images !== undefined && {
           images: stringifyJsonArray(body.images),
         }),
-        ...(body.tags !== undefined && { tags: stringifyJsonArray(body.tags) }),
+        ...(autoTagsStr !== undefined && { tags: autoTagsStr }),
         ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
         ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
         ...(body.importance !== undefined && { importance: body.importance }),
@@ -265,7 +273,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       ...(body.images !== undefined && {
         images: stringifyJsonArray(body.images),
       }),
-      ...(body.tags !== undefined && { tags: stringifyJsonArray(body.tags) }),
+      ...(autoTagsStr !== undefined && { tags: autoTagsStr }),
       ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
       ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       ...(body.importance !== undefined && { importance: body.importance }),
