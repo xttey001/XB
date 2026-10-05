@@ -67,8 +67,9 @@ interface NoteCardProps {
 const COLLAPSED_LINES = 8;
 // 内容超过多少字符时启用折叠
 const COLLAPSE_THRESHOLD = 500;
-// 摘要模式阈值：content 至少这么长才用摘要，否则直接显示完整内容
-const SUMMARY_THRESHOLD = 400;
+// 展开增量阈值：展开后至少能多看到这么多字符才显示"查看全文"按钮
+// 避免 summary=100, content=150 这种"展开只多 50 字"的鸡肋按钮
+const MIN_EXPAND_DIFF = 150;
 
 export default function NoteCard({
   note,
@@ -92,17 +93,18 @@ export default function NoteCard({
   const hasRichBlock = /data-callout|<h[1-6]\b|<ul\b|<ol\b|<blockquote\b|<pre\b|<code\b|<img\b|<span\b|<mark\b/i.test(
     note.content
   );
-  // 纯文本摘要模式：content 够长 + 有 summary + 无富文本块
+  // 纯文本摘要模式：有截断 summary 且无富文本块
   const displaySummary =
-    note.content.length > SUMMARY_THRESHOLD &&
     note.summary && note.summary.length < note.content.length &&
     !hasRichBlock;
   // 富文本超长被 CSS 折叠
   const shouldCollapse =
     !displaySummary &&
     (note.content.length > COLLAPSE_THRESHOLD || note.content.split('\n').length > COLLAPSED_LINES);
-  // 总截断判断：有任何一种折叠 → 显示按钮
-  const contentTruncated = displaySummary || shouldCollapse;
+  // 摘要模式下，展开增量够不够（至少多 150 字才值得点）
+  const summaryExpandWorth = displaySummary && (note.content.length - note.summary.length >= MIN_EXPAND_DIFF);
+  // 总截断判断：有任何一种值得展开的情况 → 显示按钮
+  const contentTruncated = summaryExpandWorth || shouldCollapse;
 
   const handleToggleFav = async (e: React.MouseEvent) => {
     e.stopPropagation();
