@@ -69,7 +69,7 @@ const COLLAPSED_LINES = 8;
 const COLLAPSE_THRESHOLD = 500;
 // 展开增量阈值：展开后至少能多看到这么多字符才显示"查看全文"按钮
 // 避免 summary=100, content=150 这种"展开只多 50 字"的鸡肋按钮
-const MIN_EXPAND_DIFF = 150;
+const MIN_EXPAND_DIFF = 200;
 
 export default function NoteCard({
   note,
