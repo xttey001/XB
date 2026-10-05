@@ -86,11 +86,35 @@ async function main() {
 
   const likedIds = new Set(likesDb.map(l => l.noteId));
 
-  // 2. 格式化 notes → 扁平结构（静态站 app.js 消费格式）
+  
+// 智能清洗笔记 HTML 里的内联颜色样式
+// - 去掉纯黑/纯白 (深色/浅色模式都看不清)
+// - 保留功能性颜色 (红/绿/蓝/紫)
+function normalizeNoteContent(html) {
+  if (!html) return html;
+  // 去掉所有内联 color style (保留 background-color)
+  // style="color: rgb(15, 20, 25); background-color: red" → style="background-color: red"
+  let r = html.replace(/style="([^"]*)"/gi, (match, styles) => {
+    const parts = styles.split(';').map(s => s.trim()).filter(Boolean);
+    const kept = parts.filter(s => {
+      const lower = s.toLowerCase();
+      // 跳过 color 和 background-color (后面统一在 DOM 层处理)
+      if (lower.startsWith('color:')) return false;
+      return true;
+    });
+    if (kept.length === 0) return '';
+    return 'style="' + kept.join('; ') + '"';
+  });
+  // 也去掉 style=''
+  r = r.replace(/style=""/gi, '');
+  return r;
+}
+
+// 2. 格式化 notes → 扁平结构（静态站 app.js 消费格式）
   console.log('📝 格式化 notes.json...');
   const notes = notesDb.map(n => ({
     id: n.id,
-    content: n.content,
+    content: normalizeNoteContent(n.content),
     images: parseJsonArray(n.images),
     tags: parseJsonArray(n.tags),
     categoryId: n.categoryId,
