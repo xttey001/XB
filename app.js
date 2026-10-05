@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791216346542').then(r => r.json()),
-      fetch('data/categories.json?v=1791216346542').then(r => r.json()),
-      fetch('data/areas.json?v=1791216346542').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791216346542').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791217008641').then(r => r.json()),
+      fetch('data/categories.json?v=1791217008641').then(r => r.json()),
+      fetch('data/areas.json?v=1791217008641').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791217008641').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -983,39 +983,53 @@ function hexToRgba(hex, alpha) {
   }
 })();
 
-// 滚动进度条 + 返回顶部
+// 滚动进度条 + 返回顶部 (同时处理桌面容器滚动和移动端 window 滚动)
 (function initScrollFeatures() {
   const progress = document.getElementById('scrollProgress');
   const backTop = document.getElementById('backToTop');
-  
-  // 可能有多个滚动容器，全部监听
-  const scrollables = [
-    document.getElementById('noteCards'),
-    document.getElementById('sidebar'),
-    document.querySelector('.sidebar-content')
-  ].filter(Boolean);
 
-  const doScroll = (container) => {
-    const el = container || document.documentElement;
-    const sc = el.scrollTop || 0;
-    const max = (el.scrollHeight || document.documentElement.scrollHeight) - (el.clientHeight || window.innerHeight);
-    const pct = max > 0 ? (sc / max * 100) : 0;
-    if (progress) progress.style.width = pct + '%';
-    if (backTop) backTop.classList.toggle('visible', sc > 400);
+  const noteCards = document.getElementById('noteCards');
+  const listArea = document.querySelector('.list-area');
+
+  const getScrollInfo = () => {
+    // 移动端: window 滚动
+    if (document.documentElement.scrollHeight > window.innerHeight + 100) {
+      return { el: window, sc: window.scrollY || 0,
+        max: document.documentElement.scrollHeight - window.innerHeight };
+    }
+    // 桌面: noteCards 容器
+    if (noteCards && noteCards.scrollHeight > noteCards.clientHeight + 100) {
+      return { el: noteCards, sc: noteCards.scrollTop,
+        max: noteCards.scrollHeight - noteCards.clientHeight };
+    }
+    if (listArea && listArea.scrollHeight > listArea.clientHeight + 100) {
+      return { el: listArea, sc: listArea.scrollTop,
+        max: listArea.scrollHeight - listArea.clientHeight };
+    }
+    return { el: window, sc: window.scrollY || 0,
+      max: document.documentElement.scrollHeight - window.innerHeight };
   };
 
-  scrollables.forEach(el => {
-    el.addEventListener('scroll', () => doScroll(el), { passive: true });
+  const doScroll = () => {
+    const info = getScrollInfo();
+    const pct = info.max > 0 ? (info.sc / info.max * 100) : 0;
+    if (progress) progress.style.width = pct + '%';
+    if (backTop) backTop.classList.toggle('visible', info.sc > 400);
+  };
+
+  // 监听所有可能的滚动容器
+  [noteCards, listArea, document.getElementById('sidebar'), window].forEach(el => {
+    if (el) el.addEventListener('scroll', doScroll, { passive: true });
   });
-  window.addEventListener('scroll', () => doScroll(null), { passive: true });
-  // 定期检查（某些场景需要）
-  setInterval(() => doScroll(scrollables[0]), 1000);
 
   if (backTop) {
     backTop.addEventListener('click', () => {
-      const target = scrollables[0];
-      if (target) target.scrollTo({ top: 0, behavior: 'smooth' });
-      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      const info = getScrollInfo();
+      if (info.el === window) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        info.el.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     });
   }
 })();
