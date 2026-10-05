@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791217900249').then(r => r.json()),
-      fetch('data/categories.json?v=1791217900249').then(r => r.json()),
-      fetch('data/areas.json?v=1791217900249').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791217900249').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791218224063').then(r => r.json()),
+      fetch('data/categories.json?v=1791218224063').then(r => r.json()),
+      fetch('data/areas.json?v=1791218224063').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791218224063').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -737,7 +737,7 @@ function closeSidebar() {
 
     if (!isOpen) {
       // 抽屉关闭 → 右滑打开（必须从边缘开始，且列表在顶部）
-      if (dx > OPEN_DX && startX <= RIGHT_EDGE && scrolledToTop) {
+      if (dx > OPEN_DX && scrolledToTop) {
         drawer.classList.add('open');
         overlay.classList.remove('hidden');
       }
