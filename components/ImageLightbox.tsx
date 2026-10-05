@@ -104,8 +104,22 @@ export default function ImageLightbox({
       const dy = endY - t.startY;
       const dt = Date.now() - t.startTime;
 
+      // 点击关闭（位移很小）
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
 
+      // ⬇️ 下滑关闭（Instagram/Facebook Story 同款）
+      // 垂直下滑 > 80px 且垂直位移 > 水平位移
+      if (dy > 80 && Math.abs(dy) > Math.abs(dx)) {
+        onClose();
+        return;
+      }
+      // 快速轻扫下滑
+      if (dt < 300 && dy > 40 && Math.abs(dy) > Math.abs(dx)) {
+        onClose();
+        return;
+      }
+
+      // ← → 左右滑动翻页
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         if (dx < 0) goNext();
         else goPrev();
