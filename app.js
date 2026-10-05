@@ -1,4 +1,4 @@
-/**
+﻿/**
  * XB 静态站点 v2 - 完整逻辑（修复版）
  * Bug 修复：
  *  1. highlightSearch 用 TreeWalker 操作 DOMParser 产物 → crash
@@ -21,6 +21,55 @@ let state = {
   dateRangeStart: null,
   dateRangeEnd: null,
   sortBy: 'updatedAt',
+  orderDir: 'desc', // desc=最新在前, asc=最早在前
+
+  calMonth: new Date(),
+  expandedCards: new Set(),
+  selectedNoteId: null,
+};
+
+// ===== 初始化 =====
+async function init() {
+  try {
+    const [notes, categories, areas, dailyStats] = await Promise.all([
+      fetch('data/notes.json').then(r => r.json()),
+      fetch('data/categories.json').then(r => r.json()),
+      fetch('data/areas.json').then(r => r.json()),
+      fetch('data/daily-stats.json').then(r => r.json()).catch(() => ({})),
+    ]);
+    state.notes = notes;
+    state.categories = categories;
+    state.areas = areas;
+    state.dailyStats = dailyStats;
+  } catch (e) {
+    document.body.innerHTML = `<div style="padding:60px;text-align:center;color:#991b1b;font-family:sans-serif;">
+      数据加载失败<br><small style="color:#7c2d12">请通过 HTTP 服务器访问（不要用 file://）</small></div>`;
+    console.error(e);
+    return;
+  }
+
+  updateCounts();
+  renderSidebar();
+  renderCategories();
+  renderCalendar();
+  renderNoteList();
+  bindEvents();
+}
+
+// ===== 计数 =====
+function updateCounts() {
+  const n = state.notes;
+  document.getElementById('countAll').textContent = n.length;
+  document.getElementById('countAClass').textContent = n.filter(x => x.tags.includes('A类买点')).length;
+  document.getElementById('countReviewed').textContent = n.filter(x => x.reviewAt !== null).length;
+  document.getElementById('countPinned').textContent = n.filter(x => x.pinnedGlobal).length;
+  document.getElementById('countFavorite').textContent = n.filter(x => x.isFavorite).length;
+  document.getElementById('countImportant').textContent = n.filter(x => x.importance === 'important').length;
+  document.getElementById('countVImp').textContent = n.filter(x => x.importance === 'veryImportant').length;
+  document.getElementById('countLiked').textContent = n.filter(x => x.hasLiked).length;
+  document.getElementById('countReposted').textContent = n.filter(x => x.isReposted).length;
+}
+
 // ===== 快捷视图 =====
 function renderSidebar() {
   document.querySelectorAll('.view-btn').forEach(btn => {
@@ -28,6 +77,20 @@ function renderSidebar() {
   });
 }
 
+// ===== buildTree 扁平化分类 → 两层树（跟原应用一样的逻辑）=====
+function buildTree(flat) {
+  const map = new Map();
+  flat.forEach(c => map.set(c.id, { ...c, children: [] }));
+  const roots = [];
+  for (const node of map.values()) {
+    if (node.parentId && map.has(node.parentId)) {
+      map.get(node.parentId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.order !== b.order) return (b.order || 0) - (a.order || 0);  // 降序！
     return (a.createdAt || '').localeCompare(b.createdAt || '');
   };
@@ -36,6 +99,12 @@ function renderSidebar() {
   return roots;
 }
 
+// ===== 分类树渲染（按 parentId 递归，带 areaName 分组标题）=====
+function renderCategories() {
+  const tree = document.getElementById('categoriesTree');
+  const treeData = buildTree(state.categories);
+
+  let html = '';
   // 先按 areaName 分组 roots
   const areas = {};
   for (const root of treeData) {
@@ -51,6 +120,57 @@ function renderSidebar() {
     for (const root of roots) {
       html += renderCatNode(root, 0);
     }
+  }
+
+  // 没 areaName 的孤立分类
+  const orphans = state.categories.filter(c => !c.areaName && !c.parentId);
+  if (orphans.length > 0 && areas['_root']?.length === orphans.length) {
+    // 已经渲染过了
+  }
+
+  tree.innerHTML = html;
+}
+
+function renderCatNode(node, depth) {
+  const count = state.notes.filter(n => n.categoryId === node.id).length;
+  const isActive = state.view === 'category' && state.currentFilterId === node.id;
+  const childrenCount = countChildrenNotes(node.id);
+
+  let iconHtml;
+  const isImg = (node.icon || '').startsWith('/icons/');
+  if (node.icon) {
+    iconHtml = isImg
+      ? `<span class="cat-icon"><img src="assets${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
+      : `<span class="cat-icon">${escapeHtml(node.icon)}</span>`;
+  } else {
+    iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
+  }
+
+  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${node.id}">
+    ${iconHtml}
+    <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
+    ${count > 0 || childrenCount > 0
+      ? `<span class="cat-count">${count > 0 && childrenCount > 0 ? count + '+' + childrenCount : count || childrenCount}</span>`
+      : ''}
+  </button>`;
+  for (const child of node.children) {
+    html += renderCatNode(child, depth + 1);
+  }
+  return html;
+}
+
+function countChildrenNotes(parentId) {
+  let count = 0;
+  const queue = [parentId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const children = state.categories.filter(c => c.parentId === cur);
+    queue.push(...children.map(c => c.id));
+    count += state.notes.filter(n => n.categoryId === cur).length;
+  }
+  return count;
+}
+
 // ===== 日历 =====
 function renderCalendar() {
   const d = state.calMonth;
@@ -125,6 +245,11 @@ function formatDate(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
+// ===== 筛选逻辑（加 try-catch 防 crash）=====
+function getFilteredNotes() {
+  let notes = state.notes;
+
+  try {
     // 视图筛选
     switch (state.view) {
       case 'all': break;
@@ -137,6 +262,11 @@ function formatDate(dt) {
       case 'liked': notes = notes.filter(n => n.hasLiked); break;
       case 'reposted': notes = notes.filter(n => n.isReposted); break;
       case 'category':
+        // 递归包含子分类
+        const idsToInclude = collectCategoryIds(state.currentFilterId);
+        notes = notes.filter(n => idsToInclude.has(n.categoryId));
+        break;
+    }
 
     // 日期筛选
     if (state.dateMode === 'single' && state.dateSingle) {
@@ -188,6 +318,12 @@ function collectCategoryIds(rootId) {
   return ids;
 }
 
+// ===== 渲染 =====
+function renderNoteList() {
+  try {
+    const notes = getFilteredNotes();
+    const cards = document.getElementById('noteCards');
+    const empty = document.getElementById('listEmpty');
     const viewCountEl = document.getElementById('viewCount');
     if (viewCountEl) viewCountEl.textContent = `${notes.length} 条`;
     updateViewTitle();
@@ -200,6 +336,14 @@ function collectCategoryIds(rootId) {
     empty.classList.add('hidden');
 
     cards.innerHTML = notes.map(n => renderCard(n)).join('');
+
+    // 绑定卡片点击 → 打开详情
+    cards.querySelectorAll('.note-card').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('button, a, img')) return;
+        openDetail(el.dataset.id);
+      });
+    });
 
     // 绑定展开
     cards.querySelectorAll('.expand-btn').forEach(btn => {
@@ -269,6 +413,17 @@ function renderCard(note) {
       <span class="card-date">${dateStr}</span>
     </div>
     <div class="card-body ${collapsedClass}">${bodyHtml}</div>
+    ${imagesHtml}
+    <div class="card-footer">${tagsHtml}${expandBtn}</div>
+  </article>`;
+}
+
+function toggleCard(id) {
+  if (state.expandedCards.has(id)) state.expandedCards.delete(id);
+  else state.expandedCards.add(id);
+  renderNoteList();
+}
+
 // ===== 详情弹窗 =====
 function openDetail(noteId) {
   const note = state.notes.find(n => n.id === noteId);
@@ -288,11 +443,41 @@ function openDetail(noteId) {
     ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
 
+  // 图片网格
+  const imagesHtml = note.images && note.images.length > 0
+    ? `<div class="card-images">${renderImagesGrid(note.images)}</div>`
+    : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-header-left">${catBadge}${impBadge}</div>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      </div>
+      <div class="detail-meta">
+        <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
+        <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
+        ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
+        ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
+      </div>
+      ${tagsHtml}
       <div class="modal-body card-body">${safeHighlightSearch(fixImgSrcInHtml(note.content || ''))}</div>
       ${imagesHtml}
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // ESC 关闭
+  const onKey = e => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
+  document.addEventListener('keydown', onKey);
 
   // 图片 lightbox
   overlay.querySelectorAll('img').forEach(img => {
@@ -317,6 +502,13 @@ function safeHighlightSearch(html) {
   if (!state.searchQuery.trim()) return html;
   const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   try {
+    // 用正则替换，但跳过 HTML 标签内部
+    return html.replace(
+      new RegExp(`(>[^<]*)(${q})([^<]*<)`, 'gi'),
+      (match, before, hit, after) => `${before}<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
+    );
+  } catch {
+    return html;
   }
 }
 
@@ -335,20 +527,7 @@ function updateViewTitle() {
   }
 }
 
-function updateViewTitle() {
-  const h = document.getElementById('viewTitle');
-  if (!h) return;
-  const titles = {
-    all: '全部笔记', aClass: 'A类买点', reviewed: '回顾', pinned: '置顶',
-    favorite: '收藏', important: '重要', veryImportant: '极重要',
-    liked: '点赞', reposted: '转发',
-  };
-  const label = state.view === 'category'
-    ? (state.categories.find(c => c.id === state.currentFilterId)?.name || '分类')
-    : (titles[state.view] || '笔记');
-  h.innerHTML = `${escapeHtml(label)} <span class="view-count" id="viewCount"></span>`;
-}
-
+// ===== 事件绑定 =====
 function bindEvents() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -471,8 +650,6 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
-<<<<<<< Updated upstream
-=======
 // ===== 图片路径映射 =====
 // API 返回 "/uploads/..." 或 "uploads/..." → 静态站 "assets/uploads/..."
 function resolveUploadPath(url) {
@@ -562,7 +739,6 @@ function openLightboxGallery(urls, startIdx = 0) {
 // 必须挂到 window 上，因为 img-grid 用内联 onclick="openLightboxGallery(...)"
 window.openLightboxGallery = openLightboxGallery;
 
->>>>>>> Stashed changes
 function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
