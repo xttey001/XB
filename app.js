@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791219360694').then(r => r.json()),
-      fetch('data/categories.json?v=1791219360694').then(r => r.json()),
-      fetch('data/areas.json?v=1791219360694').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791219360694').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791219943817').then(r => r.json()),
+      fetch('data/categories.json?v=1791219943817').then(r => r.json()),
+      fetch('data/areas.json?v=1791219943817').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791219943817').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -53,6 +53,22 @@ async function init() {
   renderSidebar();
   renderCategories();
   renderCalendar();
+
+  // 🔥 Fuse.js 索引在 init 后立即构建一次（缓存复用，不在 filterNotes 里懒构建）
+  window._fuseIndex = new Fuse(state.notes.map(n => ({
+    id: n.id,
+    title: (n.title || '').trim(),
+    summary: (n.summary || '').trim(),
+    content: stripHtml(n.content || '').substring(0, 3000),
+    tags: (n.tags || []).join(' '),
+    category: n.categoryName || ''
+  })), {
+    keys: ['title', 'summary', 'content', 'tags', 'category'],
+    threshold: 0.4,
+    ignoreLocation: true,
+    minMatchCharLength: 2
+  });
+
   renderNoteList();
   bindEvents();
 }
@@ -300,23 +316,8 @@ function getFilteredNotes() {
       });
     }
 
-    // 搜索（Fuse.js fuzzy）
-    if (state.searchQuery.trim()) {
-      if (!window._fuseIndex) {
-        // 构建索引
-        window._fuseIndex = new Fuse(notes.map(n => ({
-          id: n.id,
-          title: (n.title || '').trim() || '',
-          content: stripHtml(n.content || '').substring(0, 2000),
-          tags: (n.tags || []).join(' '),
-          category: n.categoryName || ''
-        })), {
-          keys: ['title', 'content', 'tags', 'category'],
-          threshold: 0.4,
-          ignoreLocation: true,
-          minMatchCharLength: 2
-        });
-      }
+    // 搜索（Fuse.js fuzzy — 用 init 时构建好的全局索引）
+    if (state.searchQuery.trim() && window._fuseIndex) {
       const results = window._fuseIndex.search(state.searchQuery);
       const matchedIds = new Set(results.map(r => r.item.id));
       notes = notes.filter(n => matchedIds.has(n.id));
