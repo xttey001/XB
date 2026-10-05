@@ -25,6 +25,7 @@ let state = {
 
   calMonth: new Date(),
   expandedCards: new Set(),
+  expandedCats: new Set(), // 哪些父分类是展开的（默认空=全收起）
   selectedNoteId: null,
 };
 
@@ -132,9 +133,12 @@ function renderCategories() {
 }
 
 function renderCatNode(node, depth) {
-  const count = state.notes.filter(n => n.categoryId === node.id).length;
+  // 直接挂在这个分类下的笔记数（不是所有子孙笔记数！）
+  const directNotes = state.notes.filter(n => n.categoryId === node.id).length;
+  const childrenCount = node.children.length; // 子分类数量（不是笔记数！）
+  const hasChildren = childrenCount > 0;
+  const isExpanded = state.expandedCats.has(node.id);
   const isActive = state.view === 'category' && state.currentFilterId === node.id;
-  const childrenCount = countChildrenNotes(node.id);
 
   let iconHtml;
   const isImg = (node.icon || '').startsWith('/icons/');
@@ -146,16 +150,34 @@ function renderCatNode(node, depth) {
     iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
   }
 
-  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${node.id}">
-    ${iconHtml}
-    <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
-    ${count > 0 || childrenCount > 0
-      ? `<span class="cat-count">${count > 0 && childrenCount > 0 ? count + '+' + childrenCount : count || childrenCount}</span>`
-      : ''}
-  </button>`;
-  for (const child of node.children) {
-    html += renderCatNode(child, depth + 1);
+  // 数字显示逻辑：跟原版一致
+  let countLabel = '';
+  if (directNotes > 0 && childrenCount > 0) countLabel = `${directNotes}+${childrenCount}`;
+  else if (directNotes > 0) countLabel = `${directNotes}`;
+  else if (childrenCount > 0) countLabel = `${childrenCount}`;
+
+  const chevron = hasChildren
+    ? `<button class="cat-chevron" data-chevron="${node.id}" aria-label="展开/折叠">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${isExpanded ? 'rotated' : ''}"><polyline points="9 18 15 12 9 6"/></svg>
+       </button>`
+    : `<span class="cat-chevron-placeholder"></span>`;
+
+  let html = `<div class="cat-node" data-cat="${node.id}">
+    <button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}">
+      ${chevron}
+      ${iconHtml}
+      <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
+      ${countLabel ? `<span class="cat-count">${countLabel}</span>` : ''}
+    </button>`;
+
+  if (hasChildren && isExpanded) {
+    html += `<div class="cat-children">`;
+    for (const child of node.children) {
+      html += renderCatNode(child, depth + 1);
+    }
+    html += `</div>`;
   }
+  html += `</div>`;
   return html;
 }
 
@@ -539,13 +561,29 @@ function bindEvents() {
   });
 
   document.getElementById('categoriesTree').addEventListener('click', e => {
+    // 箭头点击 → 只切换折叠，不选分类
+    const chevron = e.target.closest('[data-chevron]');
+    if (chevron) {
+      e.stopPropagation();
+      const id = chevron.dataset.chevron;
+      if (state.expandedCats.has(id)) state.expandedCats.delete(id);
+      else state.expandedCats.add(id);
+      renderCategories();
+      return;
+    }
+    // 分类按钮点击
     const btn = e.target.closest('.cat-btn');
     if (!btn) return;
+    const catId = btn.closest('.cat-node').dataset.cat;
     state.view = 'category';
-    state.currentFilterId = btn.dataset.cat;
-    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    renderSidebar();
+    state.currentFilterId = catId;
+    // 自动展开选中分类的父链（跟原版一致）
+    let cur = state.categories.find(c => c.id === catId);
+    while (cur?.parentId) {
+      state.expandedCats.add(cur.parentId);
+      cur = state.categories.find(c => c.id === cur.parentId);
+    }
+    renderCategories();
     renderNoteList();
   });
 

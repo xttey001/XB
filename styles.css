@@ -291,6 +291,34 @@ input { font-family: inherit; }
   color: var(--primary);
   font-weight: 500;
 }
+.cat-node { width: 100%; }
+.cat-children {
+  margin-left: 14px; /* 跟原版 depth*14px 一致 */
+  border-left: 1px dashed var(--border);
+  padding-left: 2px;
+}
+.cat-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: var(--text-tertiary, #a1a1aa);
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all .15s;
+}
+.cat-chevron:hover {
+  color: var(--text);
+  background: var(--surface-alt);
+}
+.cat-chevron svg { transition: transform .15s; }
+.cat-chevron svg.rotated { transform: rotate(90deg); }
+.cat-chevron-placeholder { width: 18px; height: 18px; flex-shrink: 0; display: inline-block; }
 .cat-btn .cat-icon {
   width: 18px; height: 18px;
   display: inline-flex;
