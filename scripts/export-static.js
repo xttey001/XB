@@ -181,6 +181,17 @@ async function main() {
   const { copied, skipped } = copyDirIncremental(PUBLIC_UPLOADS, ASSETS_OUT);
   console.log(`  ✅ 新增/更新 ${copied} 张，跳过 ${skipped} 张（已存在且未变）`);
 
+  // 8. 给 app.js 里的 data fetch 加版本号（防浏览器强缓存 notes.json）
+  const appJsPath = path.join(STATIC_SITE, 'app.js');
+  if (fs.existsSync(appJsPath)) {
+    const ts = Date.now();
+    let appJs = fs.readFileSync(appJsPath, 'utf8');
+    // 先去掉旧的 ?v=xxx，再加新的
+    appJs = appJs.replace(/fetch\('data\/([a-z-]+)\.json[^']*'\)/g, `fetch('data/$1.json?v=${ts}')`);
+    fs.writeFileSync(appJsPath, appJs, 'utf8');
+    console.log(`  ✅ app.js fetch version bumped to ${ts}`);
+  }
+
   console.log(`\n🎉 完成！输出目录：${STATIC_SITE}`);
   console.log(`   下一步：cd public-site && git add -A && git commit -m "sync data ${notes.length}条" && git push origin gh-pages`);
 
