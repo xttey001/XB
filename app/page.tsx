@@ -696,9 +696,9 @@ export default function HomePage() {
               {displayNotes.map((note, idx) => {
                 return (
                   <div key={note.id}>
-                    {/* 置顶与普通笔记之间的分隔线 */}
+                    {/* 置顶与普通笔记之间的分隔线（用 displayNotes，保持跟渲染数组一致） */}
                     {idx > 0 &&
-                      !notes[idx - 1].pinned &&
+                      !displayNotes[idx - 1].pinned &&
                       note.pinned && (
                         <div className="text-[11px] text-ink-400 px-1 py-2 flex items-center gap-1">
                           <Pin size={9} fill="currentColor" className="text-accent-500" />
@@ -706,7 +706,7 @@ export default function HomePage() {
                         </div>
                       )}
                     {idx > 0 &&
-                      notes[idx - 1].pinned &&
+                      displayNotes[idx - 1].pinned &&
                       !note.pinned && (
                         <div className="text-[11px] text-ink-400 px-1 py-2">
                           其他笔记
