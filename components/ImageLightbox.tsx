@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import Image from 'next/image';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -67,13 +67,74 @@ export default function ImageLightbox({
     }
   }, [isOpen]);
 
+  // ========== 手机 touch 手势滑动翻页 ==========
+  const touchRef = useRef<{ startX: number; startY: number; startTime: number; twoFinger: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const root = document.querySelector('.lightbox-root') as HTMLElement | null;
+    if (!root) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        touchRef.current = { startX: 0, startY: 0, startTime: 0, twoFinger: true };
+        return;
+      }
+      touchRef.current = {
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        startTime: Date.now(),
+        twoFinger: false,
+      };
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchRef.current || touchRef.current.twoFinger) return;
+      e.preventDefault();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const t = touchRef.current;
+      touchRef.current = null;
+      if (!t || t.twoFinger) return;
+
+      const endX = e.changedTouches[0].clientX;
+      const endY = e.changedTouches[0].clientY;
+      const dx = endX - t.startX;
+      const dy = endY - t.startY;
+      const dt = Date.now() - t.startTime;
+
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+        if (dx < 0) goNext();
+        else goPrev();
+        return;
+      }
+
+      if (dt < 300 && Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
+        if (dx < 0) goNext();
+        else goPrev();
+      }
+    };
+
+    root.addEventListener('touchstart', handleTouchStart, { passive: true });
+    root.addEventListener('touchmove', handleTouchMove, { passive: false });
+    root.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      root.removeEventListener('touchstart', handleTouchStart);
+      root.removeEventListener('touchmove', handleTouchMove);
+      root.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isOpen, goPrev, goNext]);
+
   if (!isOpen || images.length === 0) return null;
 
   const currentImage = images[currentIndex];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/92 animate-fade-in"
+      className="lightbox-root fixed inset-0 z-50 flex items-center justify-center bg-black/92 animate-fade-in touch-none overscroll-contain select-none"
       onClick={onClose}
     >
       {/* 顶部信息栏 */}
@@ -123,7 +184,7 @@ export default function ImageLightbox({
 
       {/* 图片容器 */}
       <div
-        className="relative w-full h-full flex items-center justify-center p-10 sm:p-20"
+        className="relative w-full h-full flex items-center justify-center p-3 sm:p-6 lg:p-10 xl:p-20"
         onClick={(e) => e.stopPropagation()}
       >
         <div
