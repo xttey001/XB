@@ -100,7 +100,8 @@ async function main() {
     areaId: n.category?.knowledgeAreaId ?? null,
     areaName: n.category?.knowledgeArea?.name ?? null,
     isFavorite: n.isFavorite,
-    importance: n.importance ?? null,
+    // DB 是 snake_case (very_important) → 静态站用 camelCase
+    importance: n.importance === 'very_important' ? 'veryImportant' : (n.importance ?? null),
     pinnedGlobal: n.pinnedGlobal,
     reviewAt: n.reviewAt?.toISOString() ?? null,
     hasLiked: likedIds.has(n.id),
