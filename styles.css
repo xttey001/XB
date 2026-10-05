@@ -638,7 +638,13 @@ input { font-family: inherit; }
 }
 
 /* 批量图片 Gallery Lightbox */
-.lightbox-gallery { cursor: default; }
+.lightbox-gallery {
+  cursor: default;
+  touch-action: none; /* 🔥 关键：告诉浏览器不要抢手势，JS 自己处理滑动 */
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
 .lightbox-gallery .lb-backdrop {
   position: absolute; inset: 0; cursor: zoom-out;
 }

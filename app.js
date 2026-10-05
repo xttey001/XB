@@ -865,13 +865,21 @@ function openLightboxGallery(urls, startIdx) {
   document.addEventListener('keydown', onKey);
 
   // Touch 手势（手机左右滑动翻页）
-  let touchStartX = 0, touchStartY = 0, touched = false;
+  // MDN 关键：必须用 passive:false + preventDefault() 阻止浏览器抢手势
+  let touchStartX = 0, touchStartY = 0, touched = false, isTwoFinger = false;
   lb.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) { isTwoFinger = true; return; } // 两指捏合 → 让浏览器处理缩放
+    if (e.touches.length !== 1) return;
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
     touched = true;
-  }, { passive: true });
+  }, { passive: false });
+  lb.addEventListener('touchmove', (e) => {
+    if (!touched) return;
+    e.preventDefault(); // 🔥 关键：阻止浏览器滚动页面
+  }, { passive: false });
   lb.addEventListener('touchend', (e) => {
+    if (isTwoFinger) { isTwoFinger = false; touched = false; return; }
     if (!touched) return;
     touched = false;
     const dx = e.changedTouches[0].clientX - touchStartX;
@@ -882,7 +890,7 @@ function openLightboxGallery(urls, startIdx) {
     } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
       close();
     }
-  }, { passive: true });
+  }, { passive: false });
 }
 window.openLightboxGallery = openLightboxGallery;
 
