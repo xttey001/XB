@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>XB · 笔记</title>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 
@@ -101,8 +101,12 @@
     <div class="list-toolbar">
       <h2 id="viewTitle" class="view-title">全部笔记 <span class="view-count" id="viewCount"></span></h2>
       <div class="sort-toggle">
-        <button id="sortUpdated" class="sort-btn active">最新更新</button>
-        <button id="sortCreated" class="sort-btn">最新创建</button>
+        <button id="sortUpdated" class="sort-btn active" data-dir="desc" title="修改时间 (↓ 最新)">
+          修改时间 <span class="sort-arrow">▾</span>
+        </button>
+        <button id="sortCreated" class="sort-btn" data-dir="desc" title="创建时间 (点击切换)">
+          创建时间 <span class="sort-arrow">▾</span>
+        </button>
       </div>
     </div>
 
@@ -115,6 +119,6 @@
 <!-- 移动端侧边栏遮罩 -->
 <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

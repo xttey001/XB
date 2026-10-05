@@ -1,11 +1,10 @@
 /**
  * XB 静态站点 v2 - 完整逻辑（修复版）
- * 修复:
+ * Bug 修复：
  *  1. highlightSearch 用 TreeWalker 操作 DOMParser 产物 → crash
  *  2. 分类排序 order 方向反了（原应用降序 b-a，我写成 a-b）
- *  3. 分类树按 parentId 递归嵌套（buildTree）
- *  4. updateViewTitle 用 textContent 干掉 viewCount 子元素
- *  5. 点击卡片 → 详情弹窗
+ *  3. 分类树按 areaName 分组导致 parentId 嵌套丢失 → 改用 buildTree
+ *  4. 点击卡片没有详情弹窗（原应用点卡片进详情页）
  */
 
 let state = {
@@ -22,72 +21,14 @@ let state = {
   dateRangeStart: null,
   dateRangeEnd: null,
   sortBy: 'updatedAt',
-
-  calMonth: new Date(),
-  expandedCards: new Set(),
-  selectedNoteId: null,
-};
-
-async function init() {
-  try {
-    const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json').then(r => r.json()),
-      fetch('data/categories.json').then(r => r.json()),
-      fetch('data/areas.json').then(r => r.json()),
-      fetch('data/daily-stats.json').then(r => r.json()).catch(() => ({})),
-    ]);
-    state.notes = notes;
-    state.categories = categories;
-    state.areas = areas;
-    state.dailyStats = dailyStats;
-  } catch (e) {
-    document.body.innerHTML = `<div style="padding:60px;text-align:center;color:#991b1b;font-family:sans-serif;">
-      数据加载失败<br><small style="color:#7c2d12">请通过 HTTP 服务器访问（不要用 file://）</small></div>`;
-    console.error(e);
-    return;
-  }
-
-  updateCounts();
-  renderSidebar();
-  renderCategories();
-  renderCalendar();
-  renderNoteList();
-  bindEvents();
-}
-
-function updateCounts() {
-  const n = state.notes;
-  document.getElementById('countAll').textContent = n.length;
-  document.getElementById('countAClass').textContent = n.filter(x => x.tags.includes('A类买点')).length;
-  document.getElementById('countReviewed').textContent = n.filter(x => x.reviewAt !== null).length;
-  document.getElementById('countPinned').textContent = n.filter(x => x.pinnedGlobal).length;
-  document.getElementById('countFavorite').textContent = n.filter(x => x.isFavorite).length;
-  document.getElementById('countImportant').textContent = n.filter(x => x.importance === 'important').length;
-  document.getElementById('countVImp').textContent = n.filter(x => x.importance === 'veryImportant').length;
-  document.getElementById('countLiked').textContent = n.filter(x => x.hasLiked).length;
-  document.getElementById('countReposted').textContent = n.filter(x => x.isReposted).length;
-}
-
+// ===== 快捷视图 =====
 function renderSidebar() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === state.view && !state.currentFilterId);
   });
 }
 
-function buildTree(flat) {
-  const map = new Map();
-  flat.forEach(c => map.set(c.id, { ...c, children: [] }));
-  const roots = [];
-  for (const node of map.values()) {
-    if (node.parentId && map.has(node.parentId)) {
-      map.get(node.parentId).children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  const sort = (a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    if (a.order !== b.order) return (b.order || 0) - (a.order || 0);
+    if (a.order !== b.order) return (b.order || 0) - (a.order || 0);  // 降序！
     return (a.createdAt || '').localeCompare(b.createdAt || '');
   };
   roots.sort(sort);
@@ -95,11 +36,7 @@ function buildTree(flat) {
   return roots;
 }
 
-function renderCategories() {
-  const tree = document.getElementById('categoriesTree');
-  const treeData = buildTree(state.categories);
-
-  let html = '';
+  // 先按 areaName 分组 roots
   const areas = {};
   for (const root of treeData) {
     const key = root.areaName || '_root';
@@ -114,51 +51,7 @@ function renderCategories() {
     for (const root of roots) {
       html += renderCatNode(root, 0);
     }
-  }
-
-  tree.innerHTML = html;
-}
-
-function renderCatNode(node, depth) {
-  const count = state.notes.filter(n => n.categoryId === node.id).length;
-  const isActive = state.view === 'category' && state.currentFilterId === node.id;
-  const childrenCount = countChildrenNotes(node.id);
-
-  let iconHtml;
-  const isImg = (node.icon || '').startsWith('/icons/');
-  if (node.icon) {
-    iconHtml = isImg
-      ? `<span class="cat-icon"><img src="assets${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
-      : `<span class="cat-icon">${escapeHtml(node.icon)}</span>`;
-  } else {
-    iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
-  }
-
-  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${node.id}">
-    ${iconHtml}
-    <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
-    ${count > 0 || childrenCount > 0
-      ? `<span class="cat-count">${count > 0 && childrenCount > 0 ? count + '+' + childrenCount : count || childrenCount}</span>`
-      : ''}
-  </button>`;
-  for (const child of node.children) {
-    html += renderCatNode(child, depth + 1);
-  }
-  return html;
-}
-
-function countChildrenNotes(parentId) {
-  let count = 0;
-  const queue = [parentId];
-  while (queue.length) {
-    const cur = queue.shift();
-    const children = state.categories.filter(c => c.parentId === cur);
-    queue.push(...children.map(c => c.id));
-    count += state.notes.filter(n => n.categoryId === cur).length;
-  }
-  return count;
-}
-
+// ===== 日历 =====
 function renderCalendar() {
   const d = state.calMonth;
   const year = d.getFullYear();
@@ -232,10 +125,7 @@ function formatDate(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
-function getFilteredNotes() {
-  let notes = state.notes;
-
-  try {
+    // 视图筛选
     switch (state.view) {
       case 'all': break;
       case 'aClass': notes = notes.filter(n => n.tags.includes('A类买点')); break;
@@ -247,11 +137,8 @@ function getFilteredNotes() {
       case 'liked': notes = notes.filter(n => n.hasLiked); break;
       case 'reposted': notes = notes.filter(n => n.isReposted); break;
       case 'category':
-        const idsToInclude = collectCategoryIds(state.currentFilterId);
-        notes = notes.filter(n => idsToInclude.has(n.categoryId));
-        break;
-    }
 
+    // 日期筛选
     if (state.dateMode === 'single' && state.dateSingle) {
       notes = notes.filter(n => (n.createdAt || '').startsWith(state.dateSingle));
     } else if (state.dateMode === 'range' && state.dateRangeStart && state.dateRangeEnd) {
@@ -261,6 +148,7 @@ function getFilteredNotes() {
       });
     }
 
+    // 搜索
     if (state.searchQuery.trim()) {
       const q = state.searchQuery.toLowerCase();
       notes = notes.filter(n => {
@@ -274,10 +162,12 @@ function getFilteredNotes() {
     console.error('筛选出错:', e);
   }
 
+  // 排序
   notes.sort((a, b) => {
     if (a.pinnedGlobal !== b.pinnedGlobal) return a.pinnedGlobal ? -1 : 1;
     const key = state.sortBy;
-    return new Date(b[key] || 0) - new Date(a[key] || 0);
+    const delta = new Date(b[key] || 0) - new Date(a[key] || 0);
+    return state.orderDir === 'asc' ? -delta : delta;
   });
 
   return notes;
@@ -298,13 +188,8 @@ function collectCategoryIds(rootId) {
   return ids;
 }
 
-function renderNoteList() {
-  try {
-    const notes = getFilteredNotes();
-    const cards = document.getElementById('noteCards');
-    const empty = document.getElementById('listEmpty');
-
-    document.getElementById('viewCount').textContent = `${notes.length} 条`;
+    const viewCountEl = document.getElementById('viewCount');
+    if (viewCountEl) viewCountEl.textContent = `${notes.length} 条`;
     updateViewTitle();
 
     if (notes.length === 0) {
@@ -316,21 +201,17 @@ function renderNoteList() {
 
     cards.innerHTML = notes.map(n => renderCard(n)).join('');
 
-    cards.querySelectorAll('.note-card').forEach(el => {
-      el.addEventListener('click', e => {
-        if (e.target.closest('button, a, img')) return;
-        openDetail(el.dataset.id);
-      });
-    });
-
+    // 绑定展开
     cards.querySelectorAll('.expand-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        toggleCard(btn.closest('.note-card').dataset.id);
+        const cardId = btn.closest('.note-card').dataset.id;
+        toggleCard(cardId);
       });
     });
 
+    // 绑定图片 lightbox
     cards.querySelectorAll('.card-body img').forEach(img => {
       img.addEventListener('click', e => {
         e.stopPropagation();
@@ -339,8 +220,7 @@ function renderNoteList() {
     });
   } catch (e) {
     console.error('渲染笔记列表出错:', e);
-    const cards = document.getElementById('noteCards');
-    if (cards) cards.innerHTML = `<div class="list-empty">渲染出错: ${e.message}</div>`;
+    document.getElementById('noteCards').innerHTML = `<div class="list-empty">渲染出错: ${e.message}</div>`;
   }
 }
 
@@ -374,7 +254,13 @@ function renderCard(note) {
     ? `<button class="expand-btn">${isExpanded ? '收起' : '查看全文'} ${isExpanded ? '↑' : '↓'}</button>`
     : '';
 
-  const bodyHtml = safeHighlightSearch(note.content || '');
+  // 修 content 里可能有的 img src + 搜索高亮
+  const bodyHtml = safeHighlightSearch(fixImgSrcInHtml(note.content || ''));
+
+  // 图片网格（images 字段）
+  const imagesHtml = note.images && note.images.length > 0
+    ? `<div class="card-images" onclick="event.stopPropagation()">${renderImagesGrid(note.images)}</div>`
+    : '';
 
   return `<article class="note-card ${note.pinnedGlobal ? 'pinned' : ''}" data-id="${note.id}">
     ${pinHtml}
@@ -383,16 +269,7 @@ function renderCard(note) {
       <span class="card-date">${dateStr}</span>
     </div>
     <div class="card-body ${collapsedClass}">${bodyHtml}</div>
-    <div class="card-footer">${tagsHtml}${expandBtn}</div>
-  </article>`;
-}
-
-function toggleCard(id) {
-  if (state.expandedCards.has(id)) state.expandedCards.delete(id);
-  else state.expandedCards.add(id);
-  renderNoteList();
-}
-
+// ===== 详情弹窗 =====
 function openDetail(noteId) {
   const note = state.notes.find(n => n.id === noteId);
   if (!note) return;
@@ -411,35 +288,13 @@ function openDetail(noteId) {
     ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
 
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <div class="modal-header-left">${catBadge}${impBadge}</div>
-        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
-      </div>
-      <div class="detail-meta">
-        <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
-        <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
-        ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
-        ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
-      </div>
-      ${tagsHtml}
-      <div class="modal-body card-body">${safeHighlightSearch(note.content || '')}</div>
+      <div class="modal-body card-body">${safeHighlightSearch(fixImgSrcInHtml(note.content || ''))}</div>
+      ${imagesHtml}
     </div>
   `;
   document.body.appendChild(overlay);
 
-  const onKey = e => {
-    if (e.key === 'Escape') {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
-    }
-  };
-  document.addEventListener('keydown', onKey);
-
+  // 图片 lightbox
   overlay.querySelectorAll('img').forEach(img => {
     img.addEventListener('click', e => {
       e.stopPropagation();
@@ -456,17 +311,27 @@ function showLightbox(src) {
   document.body.appendChild(lb);
 }
 
-// 安全版搜索高亮 - 纯正则替换 HTML 字符串，不操作 DOM
+// ===== 搜索高亮（安全版）=====
+// 直接对 HTML 字符串做正则替换，不操作 DOM，零 crash 风险
 function safeHighlightSearch(html) {
   if (!state.searchQuery.trim()) return html;
   const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   try {
-    return html.replace(
-      new RegExp(`(>[^<]*)(${q})([^<]*<)`, 'gi'),
-      (match, before, hit, after) => `${before}<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
-    );
-  } catch {
-    return html;
+  }
+}
+
+function updateViewTitle() {
+  const h = document.getElementById('viewTitle');
+  const titles = {
+    all: '全部笔记', aClass: 'A类买点', reviewed: '回顾', pinned: '置顶',
+    favorite: '收藏', important: '重要', veryImportant: '极重要',
+    liked: '点赞', reposted: '转发',
+  };
+  if (state.view === 'category') {
+    const cat = state.categories.find(c => c.id === state.currentFilterId);
+    h.textContent = cat ? cat.name : '分类';
+  } else {
+    h.textContent = titles[state.view] || '笔记';
   }
 }
 
@@ -578,9 +443,26 @@ function handleDateClick(dateStr) {
 }
 
 function setSort(key) {
-  state.sortBy = key;
-  document.getElementById('sortUpdated').classList.toggle('active', key === 'updatedAt');
-  document.getElementById('sortCreated').classList.toggle('active', key === 'createdAt');
+  if (state.sortBy === key) {
+    // 点击同一个按钮 → 切换升降序
+    state.orderDir = state.orderDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    state.sortBy = key;
+  }
+  const dirLabel = state.orderDir === 'desc' ? '↓ 最新在前' : '↑ 最早在前';
+  // 更新按钮样式 + 方向箭头
+  const btnUpd = document.getElementById('sortUpdated');
+  const btnCrt = document.getElementById('sortCreated');
+  btnUpd.title = `修改时间 (${state.sortBy === 'updatedAt' ? dirLabel : '点击切换'})`;
+  btnCrt.title = `创建时间 (${state.sortBy === 'createdAt' ? dirLabel : '点击切换'})`;
+  btnUpd.classList.toggle('active', state.sortBy === 'updatedAt');
+  btnCrt.classList.toggle('active', state.sortBy === 'createdAt');
+  // 更新箭头方向
+  const [activeBtn, otherBtn] = state.sortBy === 'updatedAt' ? [btnUpd, btnCrt] : [btnCrt, btnUpd];
+  otherBtn.querySelector('.sort-arrow').textContent = '▾';
+  const arrow = activeBtn.querySelector('.sort-arrow');
+  arrow.textContent = state.orderDir === 'desc' ? '▾' : '▴';
+  arrow.style.color = state.orderDir === 'asc' ? '#10b981' : '';
   renderNoteList();
 }
 
@@ -589,6 +471,98 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
+<<<<<<< Updated upstream
+=======
+// ===== 图片路径映射 =====
+// API 返回 "/uploads/..." 或 "uploads/..." → 静态站 "assets/uploads/..."
+function resolveUploadPath(url) {
+  if (!url) return '';
+  // 已是完整 URL 不动
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  // 去掉前导斜杠，加 assets/ 前缀
+  let p = url.replace(/^\/+/, '');
+  if (p.startsWith('uploads/')) return 'assets/' + p;
+  return 'assets/' + p;
+}
+
+// 批量修正 HTML 里的 <img src="/uploads/xxx"> → <img src="assets/uploads/xxx">
+function fixImgSrcInHtml(html) {
+  if (!html) return '';
+  return html.replace(/(<img[^>]*\bsrc=["'])([^"']+)(["'])/gi, (m, prefix, src, suffix) => {
+    if (src.startsWith('data:') || src.startsWith('http')) return m;
+    return prefix + resolveUploadPath(src) + suffix;
+  });
+}
+
+// ===== Twitter 风格图片网格 =====
+function renderImagesGrid(images) {
+  if (!images || images.length === 0) return '';
+  const urls = images.slice(0, 9).map(resolveUploadPath);
+  const count = urls.length;
+  const remaining = images.length - 9;
+
+  const imgTag = (src, extra = '') =>
+    `<img src="${src}" loading="lazy" class="ig-img" onerror="this.style.background='#f4f4f5';this.style.backgroundImage='none'"${extra}>`;
+
+  const handleClick = (idx) =>
+    `onclick="openLightboxGallery(${JSON.stringify(images.map(resolveUploadPath))}, ${idx})"`;
+
+  let html = '<div class="img-grid" data-images="' + encodeURIComponent(JSON.stringify(images.map(resolveUploadPath))) + '">';
+
+  if (count === 1) {
+    html += `<div class="ig-single" ${handleClick(0)}>${imgTag(urls[0])}</div>`;
+  } else if (count === 2) {
+    html += `<div class="ig-row2">${urls.map((u, i) => `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}</div>`).join('')}</div>`;
+  } else if (count === 3) {
+    html += `<div class="ig-3row">
+      <div class="ig-cell ig-main" ${handleClick(0)}>${imgTag(urls[0])}</div>
+      <div class="ig-col2">${urls.slice(1).map((u, i) => `<div class="ig-cell" ${handleClick(i + 1)}>${imgTag(u)}</div>`).join('')}</div>
+    </div>`;
+  } else if (count === 4) {
+    html += `<div class="ig-2x2">${urls.map((u, i) => `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}</div>`).join('')}</div>`;
+  } else {
+    html += `<div class="ig-cols3">${urls.map((u, i) => {
+      const showMore = remaining > 0 && i === urls.length - 1;
+      return `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}${showMore ? `<div class="ig-more">+${remaining}</div>` : ''}</div>`;
+    }).join('')}</div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// ===== 批量图片 Lightbox =====
+function openLightboxGallery(urls, startIdx = 0) {
+  let idx = startIdx;
+  const lb = document.createElement('div');
+  lb.className = 'lightbox lightbox-gallery';
+  lb.innerHTML = `
+    <div class="lb-backdrop" onclick="this.closest('.lightbox').remove()"></div>
+    <button class="lb-close" onclick="this.closest('.lightbox').remove()">✕</button>
+    ${urls.length > 1 ? `<button class="lb-prev" onclick="lbNav(-1)">‹</button><button class="lb-next" onclick="lbNav(1)">›</button>` : ''}
+    <div class="lb-counter">${idx + 1} / ${urls.length}</div>
+    <img class="lb-img" src="${urls[idx]}">
+  `;
+  document.body.appendChild(lb);
+
+  // 翻页函数挂到 window
+  window.lbNav = (dir) => {
+    idx = (idx + dir + urls.length) % urls.length;
+    lb.querySelector('.lb-img').src = urls[idx];
+    lb.querySelector('.lb-counter').textContent = `${idx + 1} / ${urls.length}`;
+  };
+
+  // ESC 关闭 + 方向键翻页
+  const onKey = e => {
+    if (e.key === 'Escape') { lb.remove(); document.removeEventListener('keydown', onKey); }
+    else if (e.key === 'ArrowLeft' && urls.length > 1) window.lbNav(-1);
+    else if (e.key === 'ArrowRight' && urls.length > 1) window.lbNav(1);
+  };
+  document.addEventListener('keydown', onKey);
+}
+// 必须挂到 window 上，因为 img-grid 用内联 onclick="openLightboxGallery(...)"
+window.openLightboxGallery = openLightboxGallery;
+
+>>>>>>> Stashed changes
 function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
