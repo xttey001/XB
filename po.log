@@ -11,7 +11,7 @@
 📁 格式化 categories.json...
 🌳 格式化 areas.json...
 📊 生成 daily-stats.json...
-  ✅ notes.json        (914 条)
+  ✅ notes.json        (913 条)
   ✅ categories.json   (76 条)
   ✅ areas.json        (6 条)
   ✅ daily-stats.json  (69 天)
@@ -19,16 +19,17 @@
 
 🖼️  复制 uploads 图片...
   ✅ 新增/更新 0 张，跳过 699 张（已存在且未变）
+  ✅ app.js fetch version bumped to 1791220156944
 
 🎉 完成！输出目录：D:\XB\public-site
-   下一步：cd public-site && git add -A && git commit -m "sync data 914条" && git push origin gh-pages
+   下一步：cd public-site && git add -A && git commit -m "sync data 913条" && git push origin gh-pages
 
 [2/3] Pushing static site to gh-pages...
 [bump-cache] index.html cache version bumped ✅
      gh-pages done
 
 [3/3] Pushing Next.js to main...
-     main done
+     no main changes, skip
 
 ========================================
    All done! Refresh phone to see notes.

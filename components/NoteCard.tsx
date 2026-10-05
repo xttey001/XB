@@ -28,6 +28,30 @@ import ImportanceButton from './ImportanceButton';
 import NoteReviewButton from './NoteReviewButton';
 import type { NoteImportance } from '@/lib/types';
 
+// ===== 搜索关键词高亮辅助 =====
+function escapeReg(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** 纯文本中高亮关键词（返回 React 元素数组） */
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const re = new RegExp(`(${escapeReg(query)})`, 'gi');
+  const parts = text.split(re);
+  return parts.map((p, i) =>
+    re.test(p) ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5">{p}</mark> : p
+  );
+}
+
+/** HTML 字符串中高亮关键词（只替换文本节点部分，不破坏标签） */
+function highlightHtml(html: string, query: string): string {
+  if (!query.trim()) return html;
+  const re = new RegExp(`(${escapeReg(query)})`, 'gi');
+  // 匹配 ">" 和 "<" 之间的内容（即纯文本部分），在里面替换关键词
+  return html.replace(/>([^<]*?)</g, (match, text) => {
+    if (!re.test(text)) return match;
+    return '>' + text.replace(re, '<mark class="bg-yellow-200 text-yellow-900 rounded px-0.5">$1</mark>') + '<';
+  });
+}
+
 interface NoteCardProps {
   note: NoteDTO;
   categories: CategoryDTO[];
@@ -36,6 +60,8 @@ interface NoteCardProps {
   onReposted?: (newNote: NoteDTO) => void;
   /** 当前所在视图范围，决定置顶操作影响哪个置顶字段 */
   scope?: 'all' | 'favorite' | 'important' | 'veryImportant' | 'category' | 'liked' | 'reposted' | 'allPinned' | 'reviewed';
+  /** 搜索页：给内容里的关键词加 <mark> 高亮 */
+  highlightQuery?: string;
 }
 
 // 折叠时显示的最大行数（CSS line-clamp）
@@ -50,6 +76,7 @@ export default function NoteCard({
   onDeleted,
   onReposted,
   scope = 'all',
+  highlightQuery,
 }: NoteCardProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -365,7 +392,7 @@ export default function NoteCard({
       {/* 正文：长内容显示摘要，短内容显示完整富文本 */}
       {displaySummary ? (
         <div onClick={handleCardClick} className="cursor-pointer text-lg text-ink-800 leading-relaxed">
-          {note.summary}
+          {highlightQuery ? highlightText(note.summary || '', highlightQuery) : note.summary}
         </div>
       ) : (
         note.content && (
@@ -376,19 +403,29 @@ export default function NoteCard({
               shouldCollapse && 'note-md-collapsed'
             )}
           >
-            <RichTextRenderer content={note.content} />
+            <RichTextRenderer content={highlightQuery ? highlightHtml(note.content, highlightQuery) : note.content} />
           </div>
         )
       )}
 
-      {/* 摘要截断或折叠时的"查看全文"按钮 */}
+      {/* "查看全文" 按钮：就地展开（不是跳详情页） */}
       {(displaySummary || shouldCollapse) && (
         <button
-          onClick={() => goToDetail()}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (expanded) {
+              setExpanded(false);
+            } else if (shouldCollapse) {
+              setExpanded(true);
+            } else {
+              // displaySummary 没有完整内容 → 跳详情
+              goToDetail();
+            }
+          }}
           className="mt-1 inline-flex items-center gap-1 text-xs text-accent-600 hover:text-accent-700"
         >
           <Maximize2 size={11} />
-          查看全文
+          {expanded ? '收起 ↑' : shouldCollapse ? '查看全文 ↓' : '查看详情'}
         </button>
       )}
 

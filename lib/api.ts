@@ -106,6 +106,10 @@ export const api = {
     const qs = sp.toString();
     return request(`/api/notes${qs ? `?${qs}` : ''}`);
   },
+  /** 拉全量 notes（用于前端 Fuse.js fuzzy 搜索） */
+  listAllNotes(): Promise<{ notes: NoteDTO[]; total: number }> {
+    return request('/api/notes?all=true&limit=5000&sortBy=updatedAt&orderDir=desc');
+  },
   getDailyStats(params: {
     year: number;
     month: number;

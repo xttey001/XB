@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
   const endDate = searchParams.get('endDate');
   const withSocial = searchParams.get('withSocial') === 'true';
   const reviewDue = searchParams.get('reviewDue') === 'true';
-  const limit = Math.min(Number(searchParams.get('limit') || 20), 200);
+  const limit = Math.min(Number(searchParams.get('limit') || 20), searchParams.get('all') === 'true' ? 5000 : 200);
   const offset = Math.max(Number(searchParams.get('offset') || 0), 0);
 
   const includeDescendants = searchParams.get('includeDescendants') === 'true';

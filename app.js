@@ -1,6 +1,10 @@
-/**
- * XB 静态站点 v2 - 完整逻辑
- * 纯原生 JS，零依赖
+﻿/**
+ * XB 静态站点 v2 - 完整逻辑（修复版）
+ * Bug 修复：
+ *  1. highlightSearch 用 TreeWalker 操作 DOMParser 产物 → crash
+ *  2. 分类排序 order 方向反了（原应用降序 b-a，我写成 a-b）
+ *  3. 分类树按 areaName 分组导致 parentId 嵌套丢失 → 改用 buildTree
+ *  4. 点击卡片没有详情弹窗（原应用点卡片进详情页）
  */
 
 let state = {
@@ -9,31 +13,30 @@ let state = {
   areas: [],
   dailyStats: {},
 
-  // 筛选状态
-  view: 'all',             // all | aClass | reviewed | pinned | favorite | important | veryImportant | liked | reposted | category
-  currentFilterId: null,   // 分类筛选时用
+  view: 'all',
+  currentFilterId: null,
   searchQuery: '',
-  dateMode: 'single',      // single | range
-  dateSingle: null,        // '2026-10-05'
+  dateMode: 'single',
+  dateSingle: null,
   dateRangeStart: null,
   dateRangeEnd: null,
-  sortBy: 'updatedAt',     // updatedAt | createdAt
+  sortBy: 'updatedAt',
+  orderDir: 'desc', // desc=最新在前, asc=最早在前
 
-  // 日历
   calMonth: new Date(),
-
-  // 展开的卡片
   expandedCards: new Set(),
+  expandedCats: new Set(), // 哪些父分类是展开的（默认空=全收起）
+  selectedNoteId: null,
 };
 
 // ===== 初始化 =====
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json').then(r => r.json()),
-      fetch('data/categories.json').then(r => r.json()),
-      fetch('data/areas.json').then(r => r.json()),
-      fetch('data/daily-stats.json').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791214282089').then(r => r.json()),
+      fetch('data/categories.json?v=1791214282089').then(r => r.json()),
+      fetch('data/areas.json?v=1791214282089').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791214282089').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -42,7 +45,8 @@ async function init() {
   } catch (e) {
     document.body.innerHTML = `<div style="padding:60px;text-align:center;color:#991b1b;font-family:sans-serif;">
       数据加载失败<br><small style="color:#7c2d12">请通过 HTTP 服务器访问（不要用 file://）</small></div>`;
-    throw e;
+    console.error(e);
+    return;
   }
 
   updateCounts();
@@ -67,73 +71,126 @@ function updateCounts() {
   document.getElementById('countReposted').textContent = n.filter(x => x.isReposted).length;
 }
 
-// ===== 侧边栏：快捷视图 =====
+// ===== 快捷视图 =====
 function renderSidebar() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === state.view && !state.currentFilterId);
   });
 }
 
-// ===== 分类树 =====
+// ===== buildTree 扁平化分类 → 两层树（跟原应用一样的逻辑）=====
+function buildTree(flat) {
+  const map = new Map();
+  flat.forEach(c => map.set(c.id, { ...c, children: [] }));
+  const roots = [];
+  for (const node of map.values()) {
+    if (node.parentId && map.has(node.parentId)) {
+      map.get(node.parentId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.order !== b.order) return (b.order || 0) - (a.order || 0);  // 降序！
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  };
+  roots.sort(sort);
+  for (const node of map.values()) node.children.sort(sort);
+  return roots;
+}
+
+// ===== 分类树渲染（按 parentId 递归，带 areaName 分组标题）=====
 function renderCategories() {
   const tree = document.getElementById('categoriesTree');
-
-  // 按 area 分组
-  const grouped = {};
-  for (const c of state.categories) {
-    const key = c.areaName || '_root';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(c);
-  }
-  // parent 分组
-  for (const arr of Object.values(grouped)) {
-    arr.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      if (a.parentId !== b.parentId) return (a.parentId || '').localeCompare(b.parentId || '');
-      return (a.order || 0) - (b.order || 0);
-    });
-  }
+  const treeData = buildTree(state.categories);
 
   let html = '';
-  for (const [areaName, cats] of Object.entries(grouped)) {
+  // 先按 areaName 分组 roots
+  const areas = {};
+  for (const root of treeData) {
+    const key = root.areaName || '_root';
+    if (!areas[key]) areas[key] = [];
+    areas[key].push(root);
+  }
+
+  for (const [areaName, roots] of Object.entries(areas)) {
     if (areaName !== '_root') {
       html += `<div class="area-group-title">${escapeHtml(areaName)}</div>`;
     }
-    // 顶层 + 子分类递归渲染
-    const topCats = cats.filter(c => !c.parentId);
-    for (const c of topCats) {
-      html += renderCatBtn(c, 0, cats);
+    for (const root of roots) {
+      html += renderCatNode(root, 0);
     }
   }
-  // 孤立子分类（parent 不在 state.categories 里）
-  const orphans = state.categories.filter(c => c.parentId && !state.categories.find(p => p.id === c.parentId));
-  if (orphans.length > 0) {
-    html += `<div class="area-group-title">未分类</div>`;
-    for (const c of orphans) {
-      html += renderCatBtn(c, 1, []);
-    }
+
+  // 没 areaName 的孤立分类
+  const orphans = state.categories.filter(c => !c.areaName && !c.parentId);
+  if (orphans.length > 0 && areas['_root']?.length === orphans.length) {
+    // 已经渲染过了
   }
+
   tree.innerHTML = html;
 }
 
-function renderCatBtn(cat, depth, allCats) {
-  const count = state.notes.filter(n => n.categoryId === cat.id).length;
-  const isActive = state.view === 'category' && state.currentFilterId === cat.id;
-  const isImg = (cat.icon || '').startsWith('/icons/');
-  const iconHtml = cat.icon
-    ? isImg ? `<span class="cat-icon"><img src="${cat.icon.replace(/^\//, '')}"></span>` : `<span class="cat-icon">${cat.icon}</span>`
-    : `<span class="cat-icon-dot" style="background:${cat.color || '#654acb'}"></span>`;
-  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${cat.id}">
-    ${iconHtml}
-    <span style="flex:1;color:${cat.color || '#1c1917'}">${escapeHtml(cat.name)}</span>
-    ${count > 0 ? `<span class="cat-count">${count}</span>` : ''}
-  </button>`;
-  // 子分类
-  const children = allCats.filter(c => c.parentId === cat.id);
-  for (const child of children) {
-    html += renderCatBtn(child, depth + 1, allCats);
+function renderCatNode(node, depth) {
+  // 直接挂在这个分类下的笔记数（不是所有子孙笔记数！）
+  const directNotes = state.notes.filter(n => n.categoryId === node.id).length;
+  const childrenCount = node.children.length; // 子分类数量（不是笔记数！）
+  const hasChildren = childrenCount > 0;
+  const isExpanded = state.expandedCats.has(node.id);
+  const isActive = state.view === 'category' && state.currentFilterId === node.id;
+
+  let iconHtml;
+  const isImg = (node.icon || '').startsWith('/icons/');
+  if (node.icon) {
+    iconHtml = isImg
+      ? `<span class="cat-icon"><img src="assets/${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
+      : `<span class="cat-icon">${escapeHtml(node.icon)}</span>`;
+  } else {
+    iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
   }
+
+  // 数字显示逻辑：跟原版一致
+  let countLabel = '';
+  if (directNotes > 0 && childrenCount > 0) countLabel = `${directNotes}+${childrenCount}`;
+  else if (directNotes > 0) countLabel = `${directNotes}`;
+  else if (childrenCount > 0) countLabel = `${childrenCount}`;
+
+  const chevron = hasChildren
+    ? `<button class="cat-chevron" data-chevron="${node.id}" aria-label="展开/折叠">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${isExpanded ? 'rotated' : ''}"><polyline points="9 18 15 12 9 6"/></svg>
+       </button>`
+    : `<span class="cat-chevron-placeholder"></span>`;
+
+  let html = `<div class="cat-node" data-cat="${node.id}">
+    <button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" style="padding-left: ${depth * 14}px">
+      ${chevron}
+      ${iconHtml}
+      <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
+      ${countLabel ? `<span class="cat-count">${countLabel}</span>` : ''}
+    </button>`;
+
+  if (hasChildren && isExpanded) {
+    html += `<div class="cat-children">`;
+    for (const child of node.children) {
+      html += renderCatNode(child, depth + 1);
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
   return html;
+}
+
+function countChildrenNotes(parentId) {
+  let count = 0;
+  const queue = [parentId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const children = state.categories.filter(c => c.parentId === cur);
+    queue.push(...children.map(c => c.id));
+    count += state.notes.filter(n => n.categoryId === cur).length;
+  }
+  return count;
 }
 
 // ===== 日历 =====
@@ -143,9 +200,8 @@ function renderCalendar() {
   const month = d.getMonth();
   document.getElementById('calMonthLabel').textContent = `${year}年${month + 1}月`;
 
-  // 计算日历网格（周一为一周开始）
   const firstDay = new Date(year, month, 1);
-  const startWeekday = (firstDay.getDay() + 6) % 7; // 周一=0
+  const startWeekday = (firstDay.getDay() + 6) % 7;
   const startDate = new Date(year, month, 1 - startWeekday);
   const days = [];
   for (let i = 0; i < 42; i++) {
@@ -167,17 +223,13 @@ function renderCalendar() {
     let cls = 'cal-day';
     if (isOther) cls += ' other-month';
     if (isToday) cls += ' today';
-
-    // 单日选择
     if (state.dateMode === 'single') {
       if (state.dateSingle === dateStr) cls += ' selected';
     } else {
-      // 范围模式
       if (state.dateRangeStart === dateStr) cls += ' range-start';
       else if (state.dateRangeEnd === dateStr) cls += ' range-end';
-      else if (state.dateRangeStart && state.dateRangeEnd) {
-        if (dateStr > state.dateRangeStart && dateStr < state.dateRangeEnd) cls += ' in-range';
-      }
+      else if (state.dateRangeStart && state.dateRangeEnd
+               && dateStr > state.dateRangeStart && dateStr < state.dateRangeEnd) cls += ' in-range';
     }
 
     const dotsHtml = stat.count > 0 ? `<span class="dot">${stat.count}</span>` : '';
@@ -192,7 +244,6 @@ function renderCalendar() {
     </button>`;
   }).join('');
 
-  // 范围模式提示
   const hint = document.getElementById('calRangeHint');
   if (state.dateMode === 'range') {
     if (state.dateRangeStart && state.dateRangeEnd) {
@@ -208,7 +259,6 @@ function renderCalendar() {
     hint.classList.add('hidden');
   }
 
-  // 清除按钮
   const calClear = document.getElementById('calClear');
   calClear.classList.toggle('hidden', !(state.dateSingle || state.dateRangeStart));
 }
@@ -217,117 +267,148 @@ function formatDate(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
-// ===== 筛选 & 渲染笔记列表 =====
+// ===== 筛选逻辑（加 try-catch 防 crash）=====
 function getFilteredNotes() {
   let notes = state.notes;
 
-  // 视图筛选
-  switch (state.view) {
-    case 'all': break;
-    case 'aClass': notes = notes.filter(n => n.tags.includes('A类买点')); break;
-    case 'reviewed': notes = notes.filter(n => n.reviewAt !== null); break;
-    case 'pinned': notes = notes.filter(n => n.pinnedGlobal); break;
-    case 'favorite': notes = notes.filter(n => n.isFavorite); break;
-    case 'important': notes = notes.filter(n => n.importance === 'important'); break;
-    case 'veryImportant': notes = notes.filter(n => n.importance === 'veryImportant'); break;
-    case 'liked': notes = notes.filter(n => n.hasLiked); break;
-    case 'reposted': notes = notes.filter(n => n.isReposted); break;
-    case 'category': notes = notes.filter(n => n.categoryId === state.currentFilterId); break;
-  }
+  try {
+    // 视图筛选
+    switch (state.view) {
+      case 'all': break;
+      case 'aClass': notes = notes.filter(n => n.tags.includes('A类买点')); break;
+      case 'reviewed': notes = notes.filter(n => n.reviewAt !== null); break;
+      case 'pinned': notes = notes.filter(n => n.pinnedGlobal); break;
+      case 'favorite': notes = notes.filter(n => n.isFavorite); break;
+      case 'important': notes = notes.filter(n => n.importance === 'important'); break;
+      case 'veryImportant': notes = notes.filter(n => n.importance === 'veryImportant'); break;
+      case 'liked': notes = notes.filter(n => n.hasLiked); break;
+      case 'reposted': notes = notes.filter(n => n.isReposted); break;
+      case 'category':
+        // 递归包含子分类
+        const idsToInclude = collectCategoryIds(state.currentFilterId);
+        notes = notes.filter(n => idsToInclude.has(n.categoryId));
+        break;
+    }
 
-  // 日期筛选（按 createdAt）
-  if (state.dateMode === 'single' && state.dateSingle) {
-    notes = notes.filter(n => n.createdAt.startsWith(state.dateSingle));
-  } else if (state.dateMode === 'range' && state.dateRangeStart && state.dateRangeEnd) {
-    notes = notes.filter(n => {
-      const d = n.createdAt.slice(0, 10);
-      return d >= state.dateRangeStart && d <= state.dateRangeEnd;
-    });
-  }
+    // 日期筛选
+    if (state.dateMode === 'single' && state.dateSingle) {
+      notes = notes.filter(n => (n.createdAt || '').startsWith(state.dateSingle));
+    } else if (state.dateMode === 'range' && state.dateRangeStart && state.dateRangeEnd) {
+      notes = notes.filter(n => {
+        const d = (n.createdAt || '').slice(0, 10);
+        return d >= state.dateRangeStart && d <= state.dateRangeEnd;
+      });
+    }
 
-  // 搜索
-  if (state.searchQuery.trim()) {
-    const q = state.searchQuery.toLowerCase();
-    notes = notes.filter(n => {
-      const content = stripHtml(n.content).toLowerCase();
-      const tags = n.tags.join(' ').toLowerCase();
-      const cat = (n.categoryName || '').toLowerCase();
-      return content.includes(q) || tags.includes(q) || cat.includes(q);
-    });
+    // 搜索
+    if (state.searchQuery.trim()) {
+      const q = state.searchQuery.toLowerCase();
+      notes = notes.filter(n => {
+        const content = stripHtml(n.content || '').toLowerCase();
+        const tags = (n.tags || []).join(' ').toLowerCase();
+        const cat = (n.categoryName || '').toLowerCase();
+        return content.includes(q) || tags.includes(q) || cat.includes(q);
+      });
+    }
+  } catch (e) {
+    console.error('筛选出错:', e);
   }
 
   // 排序
   notes.sort((a, b) => {
-    const key = state.sortBy;
-    // 置顶始终在最前
     if (a.pinnedGlobal !== b.pinnedGlobal) return a.pinnedGlobal ? -1 : 1;
-    return new Date(b[key]) - new Date(a[key]);
+    const key = state.sortBy;
+    const delta = new Date(b[key] || 0) - new Date(a[key] || 0);
+    return state.orderDir === 'asc' ? -delta : delta;
   });
 
   return notes;
 }
 
-function renderNoteList() {
-  const notes = getFilteredNotes();
-  const cards = document.getElementById('noteCards');
-  const empty = document.getElementById('listEmpty');
-
-  document.getElementById('viewCount').textContent = `${notes.length} 条`;
-  updateViewTitle();
-
-  if (notes.length === 0) {
-    cards.innerHTML = '';
-    empty.classList.remove('hidden');
-    return;
+function collectCategoryIds(rootId) {
+  if (!rootId) return new Set();
+  const ids = new Set([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const children = state.categories.filter(c => c.parentId === cur);
+    for (const c of children) {
+      ids.add(c.id);
+      queue.push(c.id);
+    }
   }
-  empty.classList.add('hidden');
+  return ids;
+}
 
-  cards.innerHTML = notes.map(n => renderCard(n)).join('');
+// ===== 渲染 =====
+function renderNoteList() {
+  try {
+    const notes = getFilteredNotes();
+    const cards = document.getElementById('noteCards');
+    const empty = document.getElementById('listEmpty');
+    const viewCountEl = document.getElementById('viewCount');
+    if (viewCountEl) viewCountEl.textContent = `${notes.length} 条`;
+    updateViewTitle();
 
-  // 绑定展开/收起
-  cards.querySelectorAll('.expand-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.preventDefault();
-      const cardId = btn.closest('.note-card').dataset.id;
-      toggleCard(cardId);
+    if (notes.length === 0) {
+      cards.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    cards.innerHTML = notes.map(n => renderCard(n)).join('');
+
+    // 绑定卡片点击 → 打开详情
+    cards.querySelectorAll('.note-card').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('button, a, img')) return;
+        openDetail(el.dataset.id);
+      });
     });
-  });
 
-  // 绑定图片 lightbox
-  cards.querySelectorAll('.card-body img').forEach(img => {
-    img.addEventListener('click', e => {
-      e.stopPropagation();
-      showLightbox(img.src);
+    // 绑定展开
+    cards.querySelectorAll('.expand-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const cardId = btn.closest('.note-card').dataset.id;
+        toggleCard(cardId);
+      });
     });
-  });
+
+    // 绑定图片 lightbox
+    cards.querySelectorAll('.card-body img').forEach(img => {
+      img.addEventListener('click', e => {
+        e.stopPropagation();
+        showLightbox(img.src);
+      });
+    });
+  } catch (e) {
+    console.error('渲染笔记列表出错:', e);
+    document.getElementById('noteCards').innerHTML = `<div class="list-empty">渲染出错: ${e.message}</div>`;
+  }
 }
 
 function renderCard(note) {
   const isExpanded = state.expandedCards.has(note.id);
-  const isCollapsible = note.content.length > 800 || stripHtml(note.content).split('\n').length > 12;
+  const content = stripHtml(note.content || '');
+  const isCollapsible = (note.content || '').length > 800 || content.split('\n').length > 12;
   const collapsedClass = isCollapsible && !isExpanded ? 'collapsed' : '';
 
-  // 分类徽章
   let catBadge = '';
   if (note.categoryName) {
     const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
     const color = note.categoryColor || '#1c1917';
-    const isImg = (note.categoryIcon || '').startsWith('/icons/');
-    const iconHtml = note.categoryIcon
-      ? isImg ? `<span class="cat-badge-icon"><img src="assets${note.categoryIcon}"></span>` : `<span class="cat-badge-icon">${note.categoryIcon}</span>`
-      : '';
-    catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${iconHtml}${escapeHtml(note.categoryName)}</span>`;
+    catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${escapeHtml(note.categoryName)}</span>`;
   }
 
-  // 重要性徽章
   let impBadge = '';
   if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
   else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
 
-  // 日期
   const dateStr = formatNiceDate(note.createdAt);
 
-  // 标签
   let tagsHtml = '';
   if (note.tags && note.tags.length > 0) {
     tagsHtml = `<div class="tags-row">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`;
@@ -339,13 +420,22 @@ function renderCard(note) {
     ? `<button class="expand-btn">${isExpanded ? '收起' : '查看全文'} ${isExpanded ? '↑' : '↓'}</button>`
     : '';
 
+  // 修 content 里可能有的 img src + 搜索高亮
+  const bodyHtml = safeHighlightSearch(fixImgSrcInHtml(note.content || ''));
+
+  // 图片网格（images 字段）
+  const imagesHtml = note.images && note.images.length > 0
+    ? `<div class="card-images" onclick="event.stopPropagation()">${renderImagesGrid(note.images)}</div>`
+    : '';
+
   return `<article class="note-card ${note.pinnedGlobal ? 'pinned' : ''}" data-id="${note.id}">
     ${pinHtml}
     <div class="card-header">
       <div class="card-header-left">${catBadge}${impBadge}</div>
       <span class="card-date">${dateStr}</span>
     </div>
-    <div class="card-body ${collapsedClass}">${highlightSearch(note.content)}</div>
+    <div class="card-body ${collapsedClass}">${bodyHtml}</div>
+    ${imagesHtml}
     <div class="card-footer">${tagsHtml}${expandBtn}</div>
   </article>`;
 }
@@ -356,6 +446,70 @@ function toggleCard(id) {
   renderNoteList();
 }
 
+// ===== 详情弹窗 =====
+function openDetail(noteId) {
+  const note = state.notes.find(n => n.id === noteId);
+  if (!note) return;
+  state.selectedNoteId = noteId;
+
+  let catBadge = '';
+  if (note.categoryName) {
+    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
+    catBadge = `<span class="cat-badge" style="background:${bg};color:${note.categoryColor || '#1c1917'}">${escapeHtml(note.categoryName)}</span>`;
+  }
+  let impBadge = '';
+  if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
+  else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
+
+  const tagsHtml = (note.tags || []).length > 0
+    ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
+    : '';
+
+  // 图片网格
+  const imagesHtml = note.images && note.images.length > 0
+    ? `<div class="card-images">${renderImagesGrid(note.images)}</div>`
+    : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-header-left">${catBadge}${impBadge}</div>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      </div>
+      <div class="detail-meta">
+        <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
+        <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
+        ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
+        ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
+      </div>
+      ${tagsHtml}
+      <div class="modal-body card-body">${safeHighlightSearch(fixImgSrcInHtml(note.content || ''))}</div>
+      ${imagesHtml}
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // ESC 关闭
+  const onKey = e => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
+  document.addEventListener('keydown', onKey);
+
+  // 图片 lightbox
+  overlay.querySelectorAll('img').forEach(img => {
+    img.addEventListener('click', e => {
+      e.stopPropagation();
+      showLightbox(img.src);
+    });
+  });
+}
+
 function showLightbox(src) {
   const lb = document.createElement('div');
   lb.className = 'lightbox';
@@ -364,35 +518,39 @@ function showLightbox(src) {
   document.body.appendChild(lb);
 }
 
+// ===== 搜索高亮（安全版）=====
+// 直接对 HTML 字符串做正则替换，不操作 DOM，零 crash 风险
+function safeHighlightSearch(html) {
+  if (!state.searchQuery.trim()) return html;
+  const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    // 用正则替换，但跳过 HTML 标签内部
+    return html.replace(
+      new RegExp(`(>[^<]*)(${q})([^<]*<)`, 'gi'),
+      (match, before, hit, after) => `${before}<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
+    );
+  } catch {
+    return html;
+  }
+}
+
 function updateViewTitle() {
   const h = document.getElementById('viewTitle');
   const titles = {
-    all: '全部笔记',
-    aClass: 'A类买点',
-    reviewed: '回顾',
-    pinned: '置顶',
-    favorite: '收藏',
-    important: '重要',
-    veryImportant: '极重要',
-    liked: '点赞',
-    reposted: '转发',
+    all: '全部笔记', aClass: 'A类买点', reviewed: '回顾', pinned: '置顶',
+    favorite: '收藏', important: '重要', veryImportant: '极重要',
+    liked: '点赞', reposted: '转发',
   };
   if (state.view === 'category') {
     const cat = state.categories.find(c => c.id === state.currentFilterId);
-    h.innerHTML = `${cat ? cat.name : '分类'} <span class="view-count"></span>`;
-    // 同步 viewCount
-    setTimeout(() => {
-      const countEl = document.getElementById('viewCount');
-      h.querySelector('.view-count').textContent = countEl ? countEl.textContent : '';
-    }, 0);
+    h.textContent = cat ? cat.name : '分类';
   } else {
-    h.innerHTML = `${titles[state.view] || '笔记'} <span class="view-count"></span>`;
+    h.textContent = titles[state.view] || '笔记';
   }
 }
 
 // ===== 事件绑定 =====
 function bindEvents() {
-  // 快捷视图
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       state.view = btn.dataset.view;
@@ -402,67 +560,63 @@ function bindEvents() {
     });
   });
 
-  // 分类
   document.getElementById('categoriesTree').addEventListener('click', e => {
+    // 箭头点击 → 只切换折叠，不选分类
+    const chevron = e.target.closest('[data-chevron]');
+    if (chevron) {
+      e.stopPropagation();
+      const id = chevron.dataset.chevron;
+      if (state.expandedCats.has(id)) state.expandedCats.delete(id);
+      else state.expandedCats.add(id);
+      renderCategories();
+      return;
+    }
+    // 分类按钮点击
     const btn = e.target.closest('.cat-btn');
     if (!btn) return;
+    const catId = btn.closest('.cat-node').dataset.cat;
     state.view = 'category';
-    state.currentFilterId = btn.dataset.cat;
-    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    renderSidebar();
+    state.currentFilterId = catId;
+    // 自动展开选中分类的父链（跟原版一致）
+    let cur = state.categories.find(c => c.id === catId);
+    while (cur?.parentId) {
+      state.expandedCats.add(cur.parentId);
+      cur = state.categories.find(c => c.id === cur.parentId);
+    }
+    renderCategories();
     renderNoteList();
   });
 
-  // 日历：模式切换
   document.querySelectorAll('.cal-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.cal-mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.dateMode = btn.dataset.mode;
-      if (state.dateMode === 'single') {
-        state.dateRangeStart = null;
-        state.dateRangeEnd = null;
-      } else {
-        state.dateSingle = null;
-      }
+      if (state.dateMode === 'single') { state.dateRangeStart = null; state.dateRangeEnd = null; }
+      else { state.dateSingle = null; }
       renderCalendar();
       renderNoteList();
     });
   });
 
-  // 日历：月份导航
   document.getElementById('calPrevMonth').addEventListener('click', () => {
-    const m = new Date(state.calMonth);
-    m.setMonth(m.getMonth() - 1);
-    state.calMonth = m;
-    renderCalendar();
+    const m = new Date(state.calMonth); m.setMonth(m.getMonth() - 1); state.calMonth = m; renderCalendar();
   });
   document.getElementById('calNextMonth').addEventListener('click', () => {
-    const m = new Date(state.calMonth);
-    m.setMonth(m.getMonth() + 1);
-    state.calMonth = m;
-    renderCalendar();
+    const m = new Date(state.calMonth); m.setMonth(m.getMonth() + 1); state.calMonth = m; renderCalendar();
   });
 
-  // 日历：日期点击（事件委托）
   document.getElementById('calGrid').addEventListener('click', e => {
     const btn = e.target.closest('.cal-day');
     if (!btn) return;
-    const dateStr = btn.dataset.date;
-    handleDateClick(dateStr);
+    handleDateClick(btn.dataset.date);
   });
 
-  // 日历清除
   document.getElementById('calClear').addEventListener('click', () => {
-    state.dateSingle = null;
-    state.dateRangeStart = null;
-    state.dateRangeEnd = null;
-    renderCalendar();
-    renderNoteList();
+    state.dateSingle = null; state.dateRangeStart = null; state.dateRangeEnd = null;
+    renderCalendar(); renderNoteList();
   });
 
-  // 搜索
   const searchInput = document.getElementById('searchInput');
   const clearSearch = document.getElementById('clearSearch');
   let searchTimer;
@@ -475,60 +629,57 @@ function bindEvents() {
     }, 150);
   });
   clearSearch.addEventListener('click', () => {
-    searchInput.value = '';
-    clearSearch.classList.add('hidden');
-    state.searchQuery = '';
-    renderNoteList();
-    searchInput.focus();
+    searchInput.value = ''; clearSearch.classList.add('hidden');
+    state.searchQuery = ''; renderNoteList(); searchInput.focus();
   });
 
-  // 排序
   document.getElementById('sortUpdated').addEventListener('click', () => setSort('updatedAt'));
   document.getElementById('sortCreated').addEventListener('click', () => setSort('createdAt'));
 
-  // 移动端
   document.getElementById('mobileMenuBtn').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('open');
     document.getElementById('sidebarOverlay').classList.toggle('hidden');
   });
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
-
-  // ESC 关闭日历/移动端
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeSidebar();
-  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
 }
 
 function handleDateClick(dateStr) {
   if (state.dateMode === 'single') {
-    if (state.dateSingle === dateStr) {
-      state.dateSingle = null;
-    } else {
-      state.dateSingle = dateStr;
-    }
+    state.dateSingle = state.dateSingle === dateStr ? null : dateStr;
   } else {
-    // 范围模式
     if (!state.dateRangeStart || (state.dateRangeStart && state.dateRangeEnd)) {
-      // 开始新范围
-      state.dateRangeStart = dateStr;
-      state.dateRangeEnd = null;
+      state.dateRangeStart = dateStr; state.dateRangeEnd = null;
     } else {
-      // 完成范围
-      let start = state.dateRangeStart;
-      let end = dateStr;
+      let start = state.dateRangeStart, end = dateStr;
       if (start > end) [start, end] = [end, start];
-      state.dateRangeStart = start;
-      state.dateRangeEnd = end;
+      state.dateRangeStart = start; state.dateRangeEnd = end;
     }
   }
-  renderCalendar();
-  renderNoteList();
+  renderCalendar(); renderNoteList();
 }
 
 function setSort(key) {
-  state.sortBy = key;
-  document.getElementById('sortUpdated').classList.toggle('active', key === 'updatedAt');
-  document.getElementById('sortCreated').classList.toggle('active', key === 'createdAt');
+  if (state.sortBy === key) {
+    // 点击同一个按钮 → 切换升降序
+    state.orderDir = state.orderDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    state.sortBy = key;
+  }
+  const dirLabel = state.orderDir === 'desc' ? '↓ 最新在前' : '↑ 最早在前';
+  // 更新按钮样式 + 方向箭头
+  const btnUpd = document.getElementById('sortUpdated');
+  const btnCrt = document.getElementById('sortCreated');
+  btnUpd.title = `修改时间 (${state.sortBy === 'updatedAt' ? dirLabel : '点击切换'})`;
+  btnCrt.title = `创建时间 (${state.sortBy === 'createdAt' ? dirLabel : '点击切换'})`;
+  btnUpd.classList.toggle('active', state.sortBy === 'updatedAt');
+  btnCrt.classList.toggle('active', state.sortBy === 'createdAt');
+  // 更新箭头方向
+  const [activeBtn, otherBtn] = state.sortBy === 'updatedAt' ? [btnUpd, btnCrt] : [btnCrt, btnUpd];
+  otherBtn.querySelector('.sort-arrow').textContent = '▾';
+  const arrow = activeBtn.querySelector('.sort-arrow');
+  arrow.textContent = state.orderDir === 'desc' ? '▾' : '▴';
+  arrow.style.color = state.orderDir === 'asc' ? '#10b981' : '';
   renderNoteList();
 }
 
@@ -537,7 +688,217 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
-// ===== 工具函数 =====
+// ===== 图片路径映射 =====
+// API 返回 "/uploads/..." 或 "uploads/..." → 静态站 "assets/uploads/..."
+function resolveUploadPath(url) {
+  if (!url) return '';
+  // 已是完整 URL 不动
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  // 去掉前导斜杠，加 assets/ 前缀
+  let p = url.replace(/^\/+/, '');
+  if (p.startsWith('uploads/')) return 'assets/' + p;
+  return 'assets/' + p;
+}
+
+// 批量修正 HTML 里的 <img src="/uploads/xxx"> → <img src="assets/uploads/xxx">
+function fixImgSrcInHtml(html) {
+  if (!html) return '';
+  return html.replace(/(<img[^>]*\bsrc=["'])([^"']+)(["'])/gi, (m, prefix, src, suffix) => {
+    if (src.startsWith('data:') || src.startsWith('http')) return m;
+    return prefix + resolveUploadPath(src) + suffix;
+  });
+}
+
+// ===== Twitter 风格图片网格 =====
+function renderImagesGrid(images) {
+  if (!images || images.length === 0) return '';
+  const urls = images.slice(0, 9).map(resolveUploadPath);
+  const count = urls.length;
+  const remaining = images.length - 9;
+
+  const imgTag = (src, extra = '') =>
+    `<img src="${src}" loading="lazy" class="ig-img" onerror="this.style.background='#f4f4f5';this.style.backgroundImage='none'"${extra}>`;
+
+  const handleClick = (idx) => {
+    const urlsJson = JSON.stringify(images.map(resolveUploadPath)).replace(/"/g, '&quot;');
+    return 'onclick="openLightboxGallery(' + urlsJson + ', ' + idx + ')"';
+  };
+
+  let html = '<div class="img-grid" data-images="' + encodeURIComponent(JSON.stringify(images.map(resolveUploadPath))) + '">';
+
+  if (count === 1) {
+    html += `<div class="ig-single" ${handleClick(0)}>${imgTag(urls[0])}</div>`;
+  } else if (count === 2) {
+    html += `<div class="ig-row2">${urls.map((u, i) => `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}</div>`).join('')}</div>`;
+  } else if (count === 3) {
+    html += `<div class="ig-3row">
+      <div class="ig-cell ig-main" ${handleClick(0)}>${imgTag(urls[0])}</div>
+      <div class="ig-col2">${urls.slice(1).map((u, i) => `<div class="ig-cell" ${handleClick(i + 1)}>${imgTag(u)}</div>`).join('')}</div>
+    </div>`;
+  } else if (count === 4) {
+    html += `<div class="ig-2x2">${urls.map((u, i) => `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}</div>`).join('')}</div>`;
+  } else {
+    html += `<div class="ig-cols3">${urls.map((u, i) => {
+      const showMore = remaining > 0 && i === urls.length - 1;
+      return `<div class="ig-cell" ${handleClick(i)}>${imgTag(u)}${showMore ? `<div class="ig-more">+${remaining}</div>` : ''}</div>`;
+    }).join('')}</div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// ===== 批量图片 Lightbox =====
+
+
+/**
+ * 全屏 Lightbox Gallery — 对齐原版 ImageLightbox
+ * 功能：方向键翻页、ESC 关闭、左右按钮、底部指示点、切换动画、背景锁定、touch 滑动
+ */
+function openLightboxGallery(urls, startIdx) {
+  startIdx = startIdx || 0;
+  let idx = startIdx;
+  let animating = false;
+
+  const lb = document.createElement('div');
+  lb.className = 'lightbox lightbox-gallery';
+  
+  // 底部指示点 HTML（只有多图时）
+  const dotsHtml = urls.length > 1 
+    ? '<div class="lb-dots">' + urls.map((_, i) => 
+        '<button class="lb-dot' + (i === idx ? ' lb-dot-active' : '') + '" data-idx="' + i + '"></button>'
+      ).join('') + '</div>' 
+    : '';
+
+  const navHtml = urls.length > 1 
+    ? '<button class="lb-prev" aria-label="上一张">‹</button><button class="lb-next" aria-label="下一张">›</button>' 
+    : '';
+
+  lb.innerHTML = '\
+    <div class="lb-backdrop"></div>\
+    <div class="lb-header">\
+      <span class="lb-counter">' + (idx + 1) + ' / ' + urls.length + '</span>\
+      <button class="lb-close" aria-label="关闭">✕</button>\
+    </div>\
+    ' + navHtml + '\
+    <div class="lb-img-wrap">\
+      <img class="lb-img" src="' + urls[idx] + '">\
+    </div>\
+    ' + dotsHtml;
+
+  document.body.appendChild(lb);
+  // 锁背景滚动
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+
+  const imgEl = lb.querySelector('.lb-img');
+  const counterEl = lb.querySelector('.lb-counter');
+  const dotsContainer = lb.querySelector('.lb-dots');
+
+  const updateDots = () => {
+    if (!dotsContainer) return;
+    dotsContainer.querySelectorAll('.lb-dot').forEach((d, i) => {
+      d.classList.toggle('lb-dot-active', i === idx);
+    });
+  };
+
+  // 翻页动画：先淡出滑出 → 切 src → 淡入滑入
+  const goTo = (newIdx, direction) => {
+    if (animating || newIdx === idx || urls.length <= 1) return;
+    animating = true;
+
+    // 退出动画
+    imgEl.style.transition = 'opacity .12s, transform .12s';
+    imgEl.style.opacity = '0';
+    imgEl.style.transform = 'translateX(' + (direction > 0 ? '-20px' : '20px') + ') scale(.96)';
+
+    setTimeout(() => {
+      idx = newIdx;
+      counterEl.textContent = (idx + 1) + ' / ' + urls.length;
+      updateDots();
+      imgEl.src = urls[idx];
+      // 进入动画
+      imgEl.style.transition = 'none';
+      imgEl.style.opacity = '0';
+      imgEl.style.transform = 'translateX(' + (direction > 0 ? '20px' : '-20px') + ') scale(.96)';
+      void imgEl.offsetWidth; // 强制 reflow
+      requestAnimationFrame(() => {
+        imgEl.style.transition = 'opacity .2s ease-out, transform .2s ease-out';
+        imgEl.style.opacity = '1';
+        imgEl.style.transform = 'translateX(0) scale(1)';
+        setTimeout(() => { animating = false; }, 220);
+      });
+    }, 130);
+  };
+
+  const close = () => {
+    document.body.style.overflow = prevOverflow;
+    document.removeEventListener('keydown', onKey);
+    lb.remove();
+  };
+
+  // 事件绑定
+  lb.querySelector('.lb-close').onclick = close;
+  lb.querySelector('.lb-backdrop').onclick = close;
+  
+  const prevBtn = lb.querySelector('.lb-prev');
+  const nextBtn = lb.querySelector('.lb-next');
+  if (prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); goTo((idx - 1 + urls.length) % urls.length, -1); };
+  if (nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); goTo((idx + 1) % urls.length, 1); };
+
+  // 底部指示点点击
+  if (dotsContainer) {
+    dotsContainer.addEventListener('click', (e) => {
+      const dot = e.target.closest('.lb-dot');
+      if (!dot) return;
+      const targetIdx = parseInt(dot.dataset.idx);
+      if (targetIdx === idx) return;
+      goTo(targetIdx, targetIdx > idx ? 1 : -1);
+    });
+  }
+
+  // 键盘
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft' && urls.length > 1) goTo((idx - 1 + urls.length) % urls.length, -1);
+    else if (e.key === 'ArrowRight' && urls.length > 1) goTo((idx + 1) % urls.length, 1);
+  };
+  document.addEventListener('keydown', onKey);
+
+  // Touch 手势（手机左右滑动翻页）
+  // MDN 关键：必须用 passive:false + preventDefault() 阻止浏览器抢手势
+  let touchStartX = 0, touchStartY = 0, touched = false, isTwoFinger = false;
+  lb.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) { isTwoFinger = true; return; } // 两指捏合 → 让浏览器处理缩放
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touched = true;
+  }, { passive: false });
+  lb.addEventListener('touchmove', (e) => {
+    if (!touched) return;
+    e.preventDefault(); // 🔥 关键：阻止浏览器滚动页面
+  }, { passive: false });
+  lb.addEventListener('touchend', (e) => {
+    if (isTwoFinger) { isTwoFinger = false; touched = false; return; }
+    if (!touched) return;
+    touched = false;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+
+    // ⬇️ 下滑关闭（Instagram Story 同款）
+    if (dy > 80 && Math.abs(dy) > Math.abs(dx)) { close(); return; }
+
+    // ← → 左右滑动翻页
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) goTo((idx + 1) % urls.length, 1);
+      else goTo((idx - 1 + urls.length) % urls.length, -1);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      close();
+    }
+  }, { passive: false });
+}
+window.openLightboxGallery = openLightboxGallery;
+
 function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
@@ -546,6 +907,7 @@ function escapeHtml(str) {
 }
 
 function stripHtml(html) {
+  if (!html) return '';
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || '';
@@ -553,40 +915,14 @@ function stripHtml(html) {
 
 function formatNiceDate(iso) {
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
   const now = new Date();
   const diffMs = now - d;
   const diffDays = Math.floor(diffMs / 86400000);
-  if (diffDays === 0) {
-    return `今天 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  } else if (diffDays === 1) {
-    return `昨天`;
-  } else if (diffDays < 7) {
-    return `${diffDays}天前`;
-  } else {
-    return `${d.getMonth() + 1}月${d.getDate()}日`;
-  }
-}
-
-function highlightSearch(html) {
-  if (!state.searchQuery.trim()) return html;
-  const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // 只对纯文本节点做高亮（避免破坏 HTML 标签）
-  try {
-    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
-    const walker = document.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (const node of nodes) {
-      if (node.nodeValue && new RegExp(q, 'i').test(node.nodeValue)) {
-        const div = document.createElement('div');
-        div.innerHTML = node.nodeValue.replace(new RegExp(`(${q})`, 'gi'), '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">$1</mark>');
-        node.replaceWith(...div.childNodes);
-      }
-    }
-    return doc.body.innerHTML;
-  } catch {
-    return html;
-  }
+  if (diffDays === 0) return `今天 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (diffDays === 1) return `昨天`;
+  if (diffDays < 7) return `${diffDays}天前`;
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 function hexToRgba(hex, alpha) {
@@ -597,5 +933,4 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// 启动
-init().catch(console.error);
+init().catch(e => console.error('Init failed:', e));

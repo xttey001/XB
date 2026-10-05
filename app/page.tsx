@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Fuse, { type FuseResult, type IFuseOptions } from 'fuse.js';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   PenLine,
@@ -176,6 +177,49 @@ export default function HomePage() {
   const [dailyStats, setDailyStats] = useState<DailyStatsDTO[]>([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+  // ===== Fuse.js 实时搜索（首页即搜）=====
+  const allNotesRef = useRef<NoteDTO[]>([]);
+  const fuseRef = useRef<Fuse<NoteDTO> | null>(null);
+  const fuseOptsRef = useRef<IFuseOptions<NoteDTO>>({});
+  const fuseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [fuseFilteredNotes, setFuseFilteredNotes] = useState<NoteDTO[] | null>(null);
+
+  // 🔥 实时搜索：有 searchValue 时用 Fuse 过滤，没有时用 API 加载的 notes
+  const displayNotes = fuseFilteredNotes ?? notes;
+
+  // mount 时拉全量 notes，构建 Fuse 索引
+  useEffect(() => {
+    api.listAllNotes().then(({ notes: all }) => {
+      allNotesRef.current = all;
+      const opts: IFuseOptions<NoteDTO> = {
+        keys: ['title', 'summary', 'content', 'tags', 'categoryName'],
+        threshold: 0.4,
+        ignoreLocation: true,
+        minMatchCharLength: 2,
+      };
+      fuseOptsRef.current = opts;
+      fuseRef.current = new Fuse(all, opts);
+    });
+  }, []);
+
+  // searchValue 变化 → Fuse debounce 过滤（250ms 即搜）
+  useEffect(() => {
+    if (fuseDebounceRef.current) clearTimeout(fuseDebounceRef.current);
+    if (!searchValue.trim()) {
+      setFuseFilteredNotes(null);
+      return;
+    }
+    fuseDebounceRef.current = setTimeout(() => {
+      if (!fuseRef.current) return;
+      const results = fuseRef.current.search(searchValue.trim());
+      const sorted = results
+        .sort((a: FuseResult<NoteDTO>, b: FuseResult<NoteDTO>) => (a.score ?? 1) - (b.score ?? 1))
+        .slice(0, 200)
+        .map((r: FuseResult<NoteDTO>) => r.item);
+      setFuseFilteredNotes(sorted);
+    }, 250);
+  }, [searchValue]);
 
   // ===== Anchor 恢复：URL 带 anchor=noteId 时，加载完滚到那个卡片 =====
   // 这是"从详情页返回"的核心机制：详情页返回时，浏览器 history 栈里的主页 URL
@@ -609,7 +653,7 @@ export default function HomePage() {
             <div className="flex items-center justify-center py-16 text-ink-400">
               <Loader2 className="animate-spin" size={18} />
             </div>
-          ) : notes.length === 0 ? (
+          ) : displayNotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-ink-400">
               <Inbox size={40} strokeWidth={1.2} />
               <p className="mt-3 text-sm">
@@ -649,7 +693,7 @@ export default function HomePage() {
                   置顶 ({pinnedCount})
                 </div>
               )}
-              {notes.map((note, idx) => {
+              {displayNotes.map((note, idx) => {
                 return (
                   <div key={note.id}>
                     {/* 置顶与普通笔记之间的分隔线 */}
@@ -681,7 +725,7 @@ export default function HomePage() {
               })}
 
               {/* 加载更多 */}
-              {!loading && notes.length > 0 && (
+              {!loading && displayNotes.length > 0 && (
                 <div className="pt-4 flex flex-col items-center gap-1">
                   {hasMore ? (
                     <button
