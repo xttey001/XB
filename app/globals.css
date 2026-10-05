@@ -151,3 +151,12 @@ textarea:focus, input:focus {
   );
   pointer-events: none;
 }
+
+/* 搜索关键词高亮：注入到 HTML 里的 span，不需要 DOM 操作 */
+span.search-highlight {
+  background-color: #FEF08A !important; /* amber-200 */
+  color: #92400E !important; /* amber-800 */
+  border-radius: 2px;
+  padding: 0 1px;
+  box-shadow: 0 0 0 2px #F59E0B !important; /* amber-500 外描边 */
+}

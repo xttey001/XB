@@ -37,7 +37,7 @@ function highlightText(text: string, query: string): React.ReactNode {
   const re = new RegExp(`(${escapeReg(query)})`, 'gi');
   const parts = text.split(re);
   return parts.map((p, i) =>
-    re.test(p) ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5">{p}</mark> : p
+    re.test(p) ? <span key={i} className="search-highlight" data-search-highlight="true">{p}</span> : p
   );
 }
 
@@ -45,10 +45,9 @@ function highlightText(text: string, query: string): React.ReactNode {
 function highlightHtml(html: string, query: string): string {
   if (!query.trim()) return html;
   const re = new RegExp(`(${escapeReg(query)})`, 'gi');
-  // 匹配 ">" 和 "<" 之间的内容（即纯文本部分），在里面替换关键词
   return html.replace(/>([^<]*?)</g, (match, text) => {
     if (!re.test(text)) return match;
-    return '>' + text.replace(re, '<mark class="bg-yellow-200 text-yellow-900 rounded px-0.5">$1</mark>') + '<';
+    return '>' + text.replace(re, '<span class="search-highlight" data-search-highlight="true">$1</span>') + '<';
   });
 }
 
@@ -205,7 +204,10 @@ export default function NoteCard({
       url.searchParams.set('anchor', note.id);
       window.history.replaceState(null, '', url.toString());
     } catch {}
-    router.push(`/note/${note.id}`);
+    const target = highlightQuery
+      ? `/note/${note.id}?q=${encodeURIComponent(highlightQuery)}`
+      : `/note/${note.id}`;
+    router.push(target);
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
