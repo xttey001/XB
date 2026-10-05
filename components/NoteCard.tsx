@@ -66,7 +66,9 @@ interface NoteCardProps {
 // 折叠时显示的最大行数（CSS line-clamp）
 const COLLAPSED_LINES = 8;
 // 内容超过多少字符时启用折叠
-const COLLAPSE_THRESHOLD = 280;
+const COLLAPSE_THRESHOLD = 500;
+// 摘要模式阈值：content 至少这么长才用摘要，否则直接显示完整内容
+const SUMMARY_THRESHOLD = 400;
 
 export default function NoteCard({
   note,
@@ -86,17 +88,21 @@ export default function NoteCard({
   const [updatingImportance, setUpdatingImportance] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  // 是否需要折叠：内容超长（纯文本摘要被截断 或 富文本超长）
+  // 折叠判断：纯文本摘要模式 或 富文本超长
   const hasRichBlock = /data-callout|<h[1-6]\b|<ul\b|<ol\b|<blockquote\b|<pre\b|<code\b|<img\b|<span\b|<mark\b/i.test(
     note.content
   );
-  const contentTruncated =
-    (note.summary && note.summary.length < note.content.length && !hasRichBlock) ||
+  // 纯文本摘要模式：content 够长 + 有 summary + 无富文本块
+  const displaySummary =
+    note.content.length > SUMMARY_THRESHOLD &&
+    note.summary && note.summary.length < note.content.length &&
+    !hasRichBlock;
+  // 富文本超长被 CSS 折叠
+  const shouldCollapse =
+    !displaySummary &&
     (note.content.length > COLLAPSE_THRESHOLD || note.content.split('\n').length > COLLAPSED_LINES);
-  // displaySummary：纯文本摘要模式（有截断 summary 且无富文本块）
-  const displaySummary = note.summary && note.summary.length < note.content.length && !hasRichBlock;
-  // shouldCollapse：富文本超长被 CSS 折叠
-  const shouldCollapse = !displaySummary && note.content.length > COLLAPSE_THRESHOLD;
+  // 总截断判断：有任何一种折叠 → 显示按钮
+  const contentTruncated = displaySummary || shouldCollapse;
 
   const handleToggleFav = async (e: React.MouseEvent) => {
     e.stopPropagation();
