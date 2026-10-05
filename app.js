@@ -884,6 +884,11 @@ function openLightboxGallery(urls, startIdx) {
     touched = false;
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
+
+    // ⬇️ 下滑关闭（Instagram Story 同款）
+    if (dy > 80 && Math.abs(dy) > Math.abs(dx)) { close(); return; }
+
+    // ← → 左右滑动翻页
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
       if (dx < 0) goTo((idx + 1) % urls.length, 1);
       else goTo((idx - 1 + urls.length) % urls.length, -1);
