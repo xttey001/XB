@@ -639,38 +639,70 @@ input { font-family: inherit; }
 
 /* 批量图片 Gallery Lightbox */
 .lightbox-gallery { cursor: default; }
-.lightbox-gallery .lb-img { max-width: 90vw; max-height: 85vh; object-fit: contain; }
 .lightbox-gallery .lb-backdrop {
   position: absolute; inset: 0; cursor: zoom-out;
 }
-.lightbox-gallery .lb-close {
-  position: absolute; top: 16px; right: 20px;
-  width: 40px; height: 40px; border-radius: 50%;
-  background: rgba(255,255,255,.15); color: white;
-  font-size: 18px; z-index: 20;
-  display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(6px);
-}
-.lightbox-gallery .lb-close:hover { background: rgba(255,255,255,.3); }
-.lightbox-gallery .lb-prev, .lightbox-gallery .lb-next {
-  position: absolute; top: 50%; transform: translateY(-50%);
-  width: 48px; height: 48px; border-radius: 50%;
-  background: rgba(255,255,255,.15); color: white;
-  font-size: 26px; z-index: 20;
-  display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(6px); line-height: 1;
-}
-.lightbox-gallery .lb-prev { left: 24px; }
-.lightbox-gallery .lb-next { right: 24px; }
-.lightbox-gallery .lb-prev:hover, .lightbox-gallery .lb-next:hover {
-  background: rgba(255,255,255,.3);
+/* Lightbox 顶部 header（原版对齐） */
+.lightbox-gallery .lb-header {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; z-index: 20;
 }
 .lightbox-gallery .lb-counter {
-  position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
-  padding: 6px 14px; border-radius: 16px;
-  background: rgba(255,255,255,.15); color: white;
-  font-size: 13px; z-index: 20;
-  backdrop-filter: blur(6px);
+  color: rgba(255,255,255,.85); font-size: 14px; font-weight: 500; letter-spacing: .05em;
+}
+.lightbox-gallery .lb-close {
+  position: static; width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255,255,255,.12); color: white;
+  font-size: 16px; line-height: 1; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(6px); border: none; cursor: pointer;
+  transition: background .15s;
+}
+.lightbox-gallery .lb-close:hover { background: rgba(255,255,255,.25); }
+
+/* 图片容器 */
+.lightbox-gallery .lb-img-wrap {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 80px 80px;
+}
+.lightbox-gallery .lb-img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: 4px; will-change: opacity, transform;
+}
+
+/* 左右按钮（对齐原版位置） */
+.lightbox-gallery .lb-prev, .lightbox-gallery .lb-next {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(0,0,0,.8); color: white;
+  font-size: 24px; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
+  transition: background .15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+}
+.lightbox-gallery .lb-prev { left: 18px; }
+.lightbox-gallery .lb-next { right: 18px; }
+.lightbox-gallery .lb-prev:hover, .lightbox-gallery .lb-next:hover {
+  background: rgba(0,0,0,.95);
+}
+
+/* 底部指示点（原版 ImageLightbox dots） */
+.lightbox-gallery .lb-dots {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; z-index: 20;
+}
+.lightbox-gallery .lb-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,.4);
+  border: none; cursor: pointer;
+  transition: all .2s;
+}
+.lightbox-gallery .lb-dot:hover { background: rgba(255,255,255,.65); }
+.lightbox-gallery .lb-dot-active {
+  width: 16px; border-radius: 3px;
+  background: white;
 }
 
 /* 滚动条 */

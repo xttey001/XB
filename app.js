@@ -719,8 +719,10 @@ function renderImagesGrid(images) {
   const imgTag = (src, extra = '') =>
     `<img src="${src}" loading="lazy" class="ig-img" onerror="this.style.background='#f4f4f5';this.style.backgroundImage='none'"${extra}>`;
 
-  const handleClick = (idx) =>
-    `onclick="openLightboxGallery(${JSON.stringify(images.map(resolveUploadPath))}, ${idx})"`;
+  const handleClick = (idx) => {
+    const urlsJson = JSON.stringify(images.map(resolveUploadPath)).replace(/"/g, '&quot;');
+    return 'onclick="openLightboxGallery(' + urlsJson + ', ' + idx + ')"';
+  };
 
   let html = '<div class="img-grid" data-images="' + encodeURIComponent(JSON.stringify(images.map(resolveUploadPath))) + '">';
 
@@ -746,35 +748,142 @@ function renderImagesGrid(images) {
 }
 
 // ===== 批量图片 Lightbox =====
-function openLightboxGallery(urls, startIdx = 0) {
+
+
+/**
+ * 全屏 Lightbox Gallery — 对齐原版 ImageLightbox
+ * 功能：方向键翻页、ESC 关闭、左右按钮、底部指示点、切换动画、背景锁定、touch 滑动
+ */
+function openLightboxGallery(urls, startIdx) {
+  startIdx = startIdx || 0;
   let idx = startIdx;
+  let animating = false;
+
   const lb = document.createElement('div');
   lb.className = 'lightbox lightbox-gallery';
-  lb.innerHTML = `
-    <div class="lb-backdrop" onclick="this.closest('.lightbox').remove()"></div>
-    <button class="lb-close" onclick="this.closest('.lightbox').remove()">✕</button>
-    ${urls.length > 1 ? `<button class="lb-prev" onclick="lbNav(-1)">‹</button><button class="lb-next" onclick="lbNav(1)">›</button>` : ''}
-    <div class="lb-counter">${idx + 1} / ${urls.length}</div>
-    <img class="lb-img" src="${urls[idx]}">
-  `;
-  document.body.appendChild(lb);
+  
+  // 底部指示点 HTML（只有多图时）
+  const dotsHtml = urls.length > 1 
+    ? '<div class="lb-dots">' + urls.map((_, i) => 
+        '<button class="lb-dot' + (i === idx ? ' lb-dot-active' : '') + '" data-idx="' + i + '"></button>'
+      ).join('') + '</div>' 
+    : '';
 
-  // 翻页函数挂到 window
-  window.lbNav = (dir) => {
-    idx = (idx + dir + urls.length) % urls.length;
-    lb.querySelector('.lb-img').src = urls[idx];
-    lb.querySelector('.lb-counter').textContent = `${idx + 1} / ${urls.length}`;
+  const navHtml = urls.length > 1 
+    ? '<button class="lb-prev" aria-label="上一张">‹</button><button class="lb-next" aria-label="下一张">›</button>' 
+    : '';
+
+  lb.innerHTML = '\
+    <div class="lb-backdrop"></div>\
+    <div class="lb-header">\
+      <span class="lb-counter">' + (idx + 1) + ' / ' + urls.length + '</span>\
+      <button class="lb-close" aria-label="关闭">✕</button>\
+    </div>\
+    ' + navHtml + '\
+    <div class="lb-img-wrap">\
+      <img class="lb-img" src="' + urls[idx] + '">\
+    </div>\
+    ' + dotsHtml;
+
+  document.body.appendChild(lb);
+  // 锁背景滚动
+  const prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+
+  const imgEl = lb.querySelector('.lb-img');
+  const counterEl = lb.querySelector('.lb-counter');
+  const dotsContainer = lb.querySelector('.lb-dots');
+
+  const updateDots = () => {
+    if (!dotsContainer) return;
+    dotsContainer.querySelectorAll('.lb-dot').forEach((d, i) => {
+      d.classList.toggle('lb-dot-active', i === idx);
+    });
   };
 
-  // ESC 关闭 + 方向键翻页
-  const onKey = e => {
-    if (e.key === 'Escape') { lb.remove(); document.removeEventListener('keydown', onKey); }
-    else if (e.key === 'ArrowLeft' && urls.length > 1) window.lbNav(-1);
-    else if (e.key === 'ArrowRight' && urls.length > 1) window.lbNav(1);
+  // 翻页动画：先淡出滑出 → 切 src → 淡入滑入
+  const goTo = (newIdx, direction) => {
+    if (animating || newIdx === idx || urls.length <= 1) return;
+    animating = true;
+
+    // 退出动画
+    imgEl.style.transition = 'opacity .12s, transform .12s';
+    imgEl.style.opacity = '0';
+    imgEl.style.transform = 'translateX(' + (direction > 0 ? '-20px' : '20px') + ') scale(.96)';
+
+    setTimeout(() => {
+      idx = newIdx;
+      counterEl.textContent = (idx + 1) + ' / ' + urls.length;
+      updateDots();
+      imgEl.src = urls[idx];
+      // 进入动画
+      imgEl.style.transition = 'none';
+      imgEl.style.opacity = '0';
+      imgEl.style.transform = 'translateX(' + (direction > 0 ? '20px' : '-20px') + ') scale(.96)';
+      void imgEl.offsetWidth; // 强制 reflow
+      requestAnimationFrame(() => {
+        imgEl.style.transition = 'opacity .2s ease-out, transform .2s ease-out';
+        imgEl.style.opacity = '1';
+        imgEl.style.transform = 'translateX(0) scale(1)';
+        setTimeout(() => { animating = false; }, 220);
+      });
+    }, 130);
+  };
+
+  const close = () => {
+    document.body.style.overflow = prevOverflow;
+    document.removeEventListener('keydown', onKey);
+    lb.remove();
+  };
+
+  // 事件绑定
+  lb.querySelector('.lb-close').onclick = close;
+  lb.querySelector('.lb-backdrop').onclick = close;
+  
+  const prevBtn = lb.querySelector('.lb-prev');
+  const nextBtn = lb.querySelector('.lb-next');
+  if (prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); goTo((idx - 1 + urls.length) % urls.length, -1); };
+  if (nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); goTo((idx + 1) % urls.length, 1); };
+
+  // 底部指示点点击
+  if (dotsContainer) {
+    dotsContainer.addEventListener('click', (e) => {
+      const dot = e.target.closest('.lb-dot');
+      if (!dot) return;
+      const targetIdx = parseInt(dot.dataset.idx);
+      if (targetIdx === idx) return;
+      goTo(targetIdx, targetIdx > idx ? 1 : -1);
+    });
+  }
+
+  // 键盘
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft' && urls.length > 1) goTo((idx - 1 + urls.length) % urls.length, -1);
+    else if (e.key === 'ArrowRight' && urls.length > 1) goTo((idx + 1) % urls.length, 1);
   };
   document.addEventListener('keydown', onKey);
+
+  // Touch 手势（手机左右滑动翻页）
+  let touchStartX = 0, touchStartY = 0, touched = false;
+  lb.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touched = true;
+  }, { passive: true });
+  lb.addEventListener('touchend', (e) => {
+    if (!touched) return;
+    touched = false;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) goTo((idx + 1) % urls.length, 1);
+      else goTo((idx - 1 + urls.length) % urls.length, -1);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      close();
+    }
+  }, { passive: true });
 }
-// 必须挂到 window 上，因为 img-grid 用内联 onclick="openLightboxGallery(...)"
 window.openLightboxGallery = openLightboxGallery;
 
 function escapeHtml(str) {
