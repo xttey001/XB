@@ -86,18 +86,17 @@ export default function NoteCard({
   const [updatingImportance, setUpdatingImportance] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  // 列表优先显示摘要：summary 存在且被截断时显示纯文本摘要 + 查看全文
-  // 若内容包含高亮块、标题、列表、引用、代码块、图片等富文本块，则保留完整 HTML，避免摘要丢失格式
+  // 是否需要折叠：内容超长（纯文本摘要被截断 或 富文本超长）
   const hasRichBlock = /data-callout|<h[1-6]\b|<ul\b|<ol\b|<blockquote\b|<pre\b|<code\b|<img\b|<span\b|<mark\b/i.test(
     note.content
   );
-  const displaySummary =
-    note.summary && note.summary.length < note.content.length && !hasRichBlock;
-  const shouldCollapse =
-    !displaySummary &&
-    !expanded &&
-    (note.content.length > COLLAPSE_THRESHOLD ||
-      note.content.split('\n').length > COLLAPSED_LINES);
+  const contentTruncated =
+    (note.summary && note.summary.length < note.content.length && !hasRichBlock) ||
+    (note.content.length > COLLAPSE_THRESHOLD || note.content.split('\n').length > COLLAPSED_LINES);
+  // displaySummary：纯文本摘要模式（有截断 summary 且无富文本块）
+  const displaySummary = note.summary && note.summary.length < note.content.length && !hasRichBlock;
+  // shouldCollapse：富文本超长被 CSS 折叠
+  const shouldCollapse = !displaySummary && note.content.length > COLLAPSE_THRESHOLD;
 
   const handleToggleFav = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -391,7 +390,7 @@ export default function NoteCard({
         </div>
       </div>
 
-      {/* 正文：默认显示摘要/折叠，点"查看全文"就地展开完整富文本 */}
+      {/* 正文 */}
       <div
         onClick={handleCardClick}
         className={cn(
@@ -400,20 +399,20 @@ export default function NoteCard({
         )}
       >
         {displaySummary && !expanded ? (
-          // 默认态：有截断摘要 → 显示摘要纯文本
+          // 纯文本摘要模式：显示截断的 summary
           <div className="text-lg text-ink-800 leading-relaxed">
             {highlightQuery ? highlightText(note.summary || '', highlightQuery) : note.summary}
           </div>
         ) : (
-          // 展开态 或 无摘要：渲染完整富文本
+          // 完整富文本（展开态 或 无摘要 或 短内容）
           note.content && (
             <RichTextRenderer content={highlightQuery ? highlightHtml(note.content, highlightQuery) : note.content} />
           )
         )}
       </div>
 
-      {/* "查看全文 ↓ / 收起 ↑"：就地展开完整富文本 */}
-      {(displaySummary || shouldCollapse) && (
+      {/* "查看全文 ↓ / 收起 ↑" 按钮 —— 只在内容真的被截断时才出现 */}
+      {contentTruncated && (
         <button
           onClick={(e) => {
             e.stopPropagation();
