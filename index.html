@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XB · 笔记</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- 顶部 -->
+<header class="topbar">
+  <div class="logo">
+    <span class="logo-icon">📝</span>
+    <span class="logo-text">XB · 笔记</span>
+  </div>
+  <div class="search-wrap">
+    <input id="searchInput" type="search" placeholder="搜索笔记..." autocomplete="off">
+    <button id="clearSearch" class="search-clear hidden">✕</button>
+  </div>
+</header>
+
+<div class="main-layout">
+  <!-- 左侧边栏 -->
+  <aside class="sidebar" id="sidebar">
+    <!-- 日历 -->
+    <div class="calendar-card">
+      <div class="cal-header">
+        <span class="cal-title">📅 按日期筛选</span>
+        <button id="calClear" class="cal-clear hidden">清除</button>
+      </div>
+      <div class="cal-mode">
+        <button data-mode="single" class="cal-mode-btn active">单日</button>
+        <button data-mode="range" class="cal-mode-btn">范围</button>
+      </div>
+      <div class="cal-nav">
+        <button id="calPrevMonth">‹</button>
+        <span id="calMonthLabel" class="cal-month-label"></span>
+        <button id="calNextMonth">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+      </div>
+      <div id="calGrid" class="cal-grid"></div>
+      <div id="calRangeHint" class="cal-range-hint hidden"></div>
+    </div>
+
+    <!-- 快捷视图 -->
+    <nav class="quick-views">
+      <button data-view="all" class="view-btn active">
+        <span class="vicon">📚</span> 全部笔记
+        <span class="vcount" id="countAll">-</span>
+      </button>
+      <button data-view="aClass" class="view-btn">
+        <span class="vicon">A</span> A类买点
+        <span class="vcount" id="countAClass">-</span>
+      </button>
+      <button data-view="reviewed" class="view-btn">
+        <span class="vicon">📖</span> 回顾
+        <span class="vcount" id="countReviewed">-</span>
+      </button>
+      <button data-view="pinned" class="view-btn">
+        <span class="vicon">📌</span> 置顶
+        <span class="vcount" id="countPinned">-</span>
+      </button>
+      <button data-view="favorite" class="view-btn">
+        <span class="vicon">⭐</span> 收藏
+        <span class="vcount" id="countFavorite">-</span>
+      </button>
+      <button data-view="important" class="view-btn">
+        <span class="vicon flag-red">🔥</span> 重要
+        <span class="vcount" id="countImportant">-</span>
+      </button>
+      <button data-view="veryImportant" class="view-btn">
+        <span class="vicon">💎</span> 极重要
+        <span class="vcount" id="countVImp">-</span>
+      </button>
+      <button data-view="liked" class="view-btn">
+        <span class="vicon">❤️</span> 点赞
+        <span class="vcount" id="countLiked">-</span>
+      </button>
+      <button data-view="reposted" class="view-btn">
+        <span class="vicon">🔄</span> 转发
+        <span class="vcount" id="countReposted">-</span>
+      </button>
+    </nav>
+
+    <!-- 分类 -->
+    <div class="categories-section">
+      <h3 class="section-title">分类</h3>
+      <div id="categoriesTree" class="categories-tree"></div>
+    </div>
+  </aside>
+
+  <!-- 主内容区：卡片列表 -->
+  <main class="list-area">
+    <!-- 移动端菜单按钮 -->
+    <button id="mobileMenuBtn" class="mobile-menu-btn">☰</button>
+
+    <!-- 工具栏 -->
+    <div class="list-toolbar">
+      <h2 id="viewTitle" class="view-title">全部笔记 <span class="view-count" id="viewCount"></span></h2>
+      <div class="sort-toggle">
+        <button id="sortUpdated" class="sort-btn active">最新更新</button>
+        <button id="sortCreated" class="sort-btn">最新创建</button>
+      </div>
+    </div>
+
+    <!-- 笔记卡片列表 -->
+    <div id="noteCards" class="note-cards"></div>
+    <div id="listEmpty" class="list-empty hidden">没有匹配的笔记 📭</div>
+  </main>
+</div>
+
+<!-- 移动端侧边栏遮罩 -->
+<div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
