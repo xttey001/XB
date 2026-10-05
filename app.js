@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791218878857').then(r => r.json()),
-      fetch('data/categories.json?v=1791218878857').then(r => r.json()),
-      fetch('data/areas.json?v=1791218878857').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791218878857').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791219256635').then(r => r.json()),
+      fetch('data/categories.json?v=1791219256635').then(r => r.json()),
+      fetch('data/areas.json?v=1791219256635').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791219256635').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -705,19 +705,12 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
-// ===== 手机右滑打开侧边栏（MDN Pointer Events 现代方案） =====
-// 参考: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
-// 参考: Google Material Drawer 实现
+// ===== 手机右滑/左滑手势抽屉 =====
 (function initDrawerGesture() {
-  let startX = 0, startY = 0, pointerId = null, active = false;
-  let scrolledToTop = true; // 列表是否在顶部（顶部时才允许右滑开抽屉）
+  let sx = 0, sy = 0, tracking = false, scrolledTop = true;
+  const OPEN_DX = 50, CLOSE_DX = -40;
 
-  // 阈值（全屏任意位置，无边缘限制）
-  const OPEN_DX = 55;         // 右滑 55px 触发（全屏任意位置）
-  const CLOSE_DX = -40;       // 左滑 40px 关闭抽屉
-
-  // 判断当前滚动容器是否在顶部
-  function checkScrollTop() {
+  function top() {
     const nc = document.getElementById('noteCards');
     const la = document.querySelector('.list-area');
     if (nc) return nc.scrollTop <= 2;
@@ -725,49 +718,31 @@ function closeSidebar() {
     return window.scrollY <= 2;
   }
 
-  document.addEventListener('pointerdown', e => {
-    // 只处理单指触摸
-    if (e.pointerType !== 'touch') return;
-    pointerId = e.pointerId;
-    startX = e.clientX;
-    startY = e.clientY;
-    active = true;
-    scrolledToTop = checkScrollTop();
-  });
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    tracking = true;
+    scrolledTop = top();
+  }, { passive: true });
 
-  document.addEventListener('pointerup', e => {
-    if (!active || e.pointerId !== pointerId) return;
-    active = false;
-
-    const endX = e.clientX;
-    const endY = e.clientY;
-    const dx = endX - startX;       // 正 = 右滑
-    const dy = Math.abs(endY - startY);
-    const drawer = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    const isOpen = drawer.classList.contains('open');
-
-    // 水平位移必须 > 垂直位移（水平为主）
-    if (Math.abs(dx) <= dy) return;
-    if (Math.abs(dx) < 20) return; // 太短不算
-
-    if (!isOpen) {
-      // 抽屉关闭 → 右滑打开（必须从边缘开始，且列表在顶部）
-      if (dx > OPEN_DX && scrolledToTop) {
-        drawer.classList.add('open');
-        overlay.classList.remove('hidden');
-      }
-    } else {
-      // 抽屉打开 → 左滑关闭
-      if (dx < CLOSE_DX) {
-        drawer.classList.remove('open');
-        overlay.classList.add('hidden');
-      }
+  document.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
+    if (Math.abs(dx) <= dy || Math.abs(dx) < 25) return;
+    const d = document.getElementById('sidebar');
+    const o = document.getElementById('sidebarOverlay');
+    if (!d) return;
+    if (!d.classList.contains('open') && dx > OPEN_DX && scrolledTop) {
+      d.classList.add('open'); o && o.classList.remove('hidden');
+    } else if (d.classList.contains('open') && dx < CLOSE_DX) {
+      d.classList.remove('open'); o && o.classList.add('hidden');
     }
-  });
+  }, { passive: true });
 
-  // pointercancel（手指滑到边缘被系统拦截）也要处理
-  document.addEventListener('pointercancel', () => { active = false; pointerId = null; });
+  document.addEventListener('touchcancel', () => { tracking = false; });
 })();
 
 // ===== 图片路径映射 =====
