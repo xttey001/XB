@@ -144,7 +144,7 @@ export default function ImageLightbox({
         </span>
         <button
           onClick={onClose}
-          className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors backdrop-blur-sm"
+          className="p-2 rounded-full bg-black text-white hover:bg-black/80 transition-colors shadow-lg"
         >
           <X size={22} />
         </button>
