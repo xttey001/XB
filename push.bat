@@ -20,25 +20,37 @@ rem === Step 2: Push gh-pages ===
 echo.
 echo [2/3] Pushing static site to gh-pages...
 cd public-site
+
 node ..\scripts\bump-cache.js
-git add data/ assets/uploads/ index.html
-git commit -m "sync data + bump cache" >nul 2>&1
-git push origin gh-pages
-echo      gh-pages done
+
+rem git add -A here ONLY affects public-site repo (gh-pages branch)
+rem Does NOT touch main branch at all!
+git add -A
+git commit -m "sync: data + code" >nul 2>&1
+if errorlevel 1 (
+    echo      no gh-pages changes, skip
+) else (
+    git push origin gh-pages
+    echo      gh-pages done
+)
+
 cd /d "%~dp0"
 
 rem === Step 3: Push main ===
 echo.
 echo [3/3] Pushing Next.js to main...
-git add -A
-git commit -m "sync files" >nul 2>&1
-if not errorlevel 1 (
-    git push origin main
-    echo      main done
-) else (
-    echo      no code changes, skip
+git add push.bat scripts/export-static.js scripts/bump-cache.js
+git add components/ImageLightbox.tsx
+git add .trae/skills/xb-static-site/SKILL.md
+git commit -m "sync: source changes" >nul 2>&1
+if errorlevel 1 (
+    echo      no main changes, skip
+    goto :END
 )
+git push origin main
+echo      main done
 
+:END
 echo.
 echo ========================================
 echo    All done! Refresh phone to see notes.

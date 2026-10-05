@@ -472,6 +472,97 @@ if (e.touches.length >= 2) {
 
 ---
 
+### 坑 #17：app.js 里 fetch notes.json 没加版本号 —— 推了静态站但手机看不到新笔记
+
+**⚠️ 这是静态站最隐蔽的缓存坑！坑 #1 只管 HTML 里的 CSS/JS，这个管 JS 里 fetch 的 JSON 数据文件。**
+
+**症状**：push.bat 跑成功了，GitHub Pages 上 notes.json 确实有 914 条新数据（直接 curl 能看到），但手机打开还是旧的 813 条，看不到今天写的新笔记。
+
+**根因**：坑 #1 里只给 index.html 的 `<script src="app.js?v=N">` 加了版本号，但 app.js 里的 data fetch 是**硬编码路径**，浏览器对同 URL 强缓存：
+```js
+// ❌ 坑：永远缓存同一个 notes.json
+fetch('data/notes.json').then(r => r.json())
+fetch('data/categories.json').then(r => r.json())
+```
+浏览器第一次请求 `data/notes.json` 后就缓存了，不管服务器更新多少次，下次刷新直接用缓存，**永远不发新请求**。
+
+**检查方法**：
+```powershell
+# 直接 curl GitHub Pages 远端 notes.json → 看条数
+$notes = (Invoke-WebRequest "https://xttey001.github.io/XB/data/notes.json" -UseBasicParsing).Content | ConvertFrom-Json
+echo "远端: $($notes.Count) 条"
+
+# 同时看 export-meta.json 的导出时间
+Invoke-WebRequest "https://xttey001.github.io/XB/data/export-meta.json" -UseBasicParsing | Select-Object -ExpandProperty Content
+```
+如果远端数据是新的，但手机上看不到 → **100% 是这个坑**。
+
+**解法**：**export-static.js 自动给 app.js 的 fetch URL 加毫秒时间戳**（不用手动改）：
+
+export-static.js 第 8 步（每次导出自动执行）：
+```js
+// ✅ export-static.js 里自动做，不用手动
+const ts = Date.now();
+let appJs = fs.readFileSync(appJsPath, 'utf8');
+// 先去掉旧的 ?v=xxx，再加新的
+appJs = appJs.replace(
+  /fetch\('data\/([a-z-]+)\.json[^']*'\)/g,
+  `fetch('data/$1.json?v=${ts}')`
+);
+fs.writeFileSync(appJsPath, appJs, 'utf8');
+```
+
+app.js 最终变成：
+```js
+// ✅ 每次导出 ts 都不一样 → 浏览器每次都请求新数据
+fetch('data/notes.json?v=1791213914238').then(r => r.json())
+fetch('data/categories.json?v=1791213914238').then(r => r.json())
+fetch('data/areas.json?v=1791213914238').then(r => r.json())
+fetch('data/daily-stats.json?v=1791213914238').then(r => r.json())
+```
+
+**验证**：
+```powershell
+# 远端 app.js 的 fetch URL 应该带 ?v= 时间戳
+($r = Invoke-WebRequest "https://xttey001.github.io/XB/app.js" -UseBasicParsing).Content | Select-String "fetch.*data/"
+# 期望输出：fetch('data/notes.json?v=1791213914238').then(r => r.json()), ...
+```
+
+**一句话总结**：push.bat 跑通了 ≠ 用户能看到。**缓存防全链路**：
+- HTML CSS/JS 引用 → `?v=N`（bump-cache.js 负责）
+- JS fetch JSON 数据 → `?v=毫秒时间戳`（export-static.js 负责）
+- 两个都必须有，少一个都白推！
+
+---
+
+### 坑 #18：push.bat 保存成 UTF-8 编码 —— 双击没反应
+
+**症状**：双击 push.lnk 完全没反应，或者闪一下 cmd 窗口就消失。
+
+**根因**：VS Code / Trae 默认把新文件保存成 UTF-8（带 BOM），但 cmd.exe（Windows 命令提示符）**只认 GBK/ANSI 编码**。bat 里的中文 echo 每一个 UTF-8 字节被 cmd 当成独立命令执行 → 一堆 `'站数据...' is not recognized` → bat 一启动就崩。
+
+**典型报错**（stdout）：
+```
+'��站数据...' is not recognized as an internal or external command,
+'The syntax of the command is incorrect.'
+```
+
+**解法**：
+```powershell
+# PowerShell 5 里把文件转成 GBK 编码
+$content = Get-Content d:\XB\push.bat -Raw -Encoding UTF8
+$enc = [System.Text.Encoding]::GetEncoding("GBK")
+[System.IO.File]::WriteAllText("d:\XB\push.bat", $content, $enc)
+
+# 验证首字节（GBK 应该是 0x00... 不带 BOM）
+$bytes = [System.IO.File]::ReadAllBytes("d:\XB\push.bat")
+echo "首 3 字节: $($bytes[0..2] -join ',')"  # 期望不是 239,187,191（UTF-8 BOM）
+```
+
+**更稳的做法**：bat 里**全用英文 echo**，彻底规避编码问题。
+
+---
+
 ## 📋 大厂图片预览交互规范
 
 | 操作 | 触发方式 | 来源 |
