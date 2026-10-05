@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791215463814').then(r => r.json()),
-      fetch('data/categories.json?v=1791215463814').then(r => r.json()),
-      fetch('data/areas.json?v=1791215463814').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791215463814').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791216346542').then(r => r.json()),
+      fetch('data/categories.json?v=1791216346542').then(r => r.json()),
+      fetch('data/areas.json?v=1791216346542').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791216346542').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -166,7 +166,7 @@ function renderCatNode(node, depth) {
     <button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" style="padding-left: ${depth * 14}px">
       ${chevron}
       ${iconHtml}
-      <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
+      <span style="flex:1;color:${node.color || 'var(--text)'}">${escapeHtml(node.name)}</span>
       ${countLabel ? `<span class="cat-count">${countLabel}</span>` : ''}
     </button>`;
 
@@ -398,8 +398,8 @@ function renderCard(note) {
 
   let catBadge = '';
   if (note.categoryName) {
-    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
-    const color = note.categoryColor || '#1c1917';
+    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : 'var(--surface-alt)';
+    const color = note.categoryColor || 'var(--text)';
     catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${escapeHtml(note.categoryName)}</span>`;
   }
 
@@ -527,7 +527,7 @@ function safeHighlightSearch(html) {
     // 用正则替换，但跳过 HTML 标签内部
     return html.replace(
       new RegExp(`(>[^<]*)(${q})([^<]*<)`, 'gi'),
-      (match, before, hit, after) => `${before}<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
+      (match, before, hit, after) => `${before}<mark style="background:#fef08a;color:#000;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
     );
   } catch {
     return html;
@@ -688,6 +688,35 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
+// 手机右滑打开侧边栏（屏幕左边缘 30px 内开始，右滑 > 60px 触发）
+(function initSwipeOpenSidebar() {
+  let startX = 0, startY = 0, touching = false, edgeTouch = false;
+  const EDGE_WIDTH = 30;
+  const MIN_DX = 60;
+
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    touching = true;
+    edgeTouch = startX <= EDGE_WIDTH;
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!touching || !edgeTouch) { touching = false; return; }
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - startX;
+    const dy = Math.abs(endY - startY);
+    if (dx > MIN_DX && dx > dy) {
+      document.getElementById('sidebar').classList.add('open');
+      document.getElementById('sidebarOverlay').classList.remove('hidden');
+    }
+    touching = false;
+    edgeTouch = false;
+  }, { passive: true });
+})();
+
 // ===== 图片路径映射 =====
 // API 返回 "/uploads/..." 或 "uploads/..." → 静态站 "assets/uploads/..."
 function resolveUploadPath(url) {
@@ -717,7 +746,7 @@ function renderImagesGrid(images) {
   const remaining = images.length - 9;
 
   const imgTag = (src, extra = '') =>
-    `<img src="${src}" loading="lazy" class="ig-img" onerror="this.style.background='#f4f4f5';this.style.backgroundImage='none'"${extra}>`;
+    `<img src="${src}" loading="lazy" class="ig-img" onerror="this.style.background='var(--surface-alt)';this.style.backgroundImage='none'"${extra}>`;
 
   const handleClick = (idx) => {
     const urlsJson = JSON.stringify(images.map(resolveUploadPath)).replace(/"/g, '&quot;');
@@ -958,22 +987,34 @@ function hexToRgba(hex, alpha) {
 (function initScrollFeatures() {
   const progress = document.getElementById('scrollProgress');
   const backTop = document.getElementById('backToTop');
-  const list = document.getElementById('noteCards');
+  
+  // 可能有多个滚动容器，全部监听
+  const scrollables = [
+    document.getElementById('noteCards'),
+    document.getElementById('sidebar'),
+    document.querySelector('.sidebar-content')
+  ].filter(Boolean);
 
-  const onScroll = () => {
-    const sc = list ? list.scrollTop : document.documentElement.scrollTop;
-    const max = (list ? list.scrollHeight : document.documentElement.scrollHeight) - (list ? list.clientHeight : window.innerHeight);
+  const doScroll = (container) => {
+    const el = container || document.documentElement;
+    const sc = el.scrollTop || 0;
+    const max = (el.scrollHeight || document.documentElement.scrollHeight) - (el.clientHeight || window.innerHeight);
     const pct = max > 0 ? (sc / max * 100) : 0;
     if (progress) progress.style.width = pct + '%';
     if (backTop) backTop.classList.toggle('visible', sc > 400);
   };
 
-  if (list) list.addEventListener('scroll', onScroll, { passive: true });
-  window.addEventListener('scroll', onScroll, { passive: true });
+  scrollables.forEach(el => {
+    el.addEventListener('scroll', () => doScroll(el), { passive: true });
+  });
+  window.addEventListener('scroll', () => doScroll(null), { passive: true });
+  // 定期检查（某些场景需要）
+  setInterval(() => doScroll(scrollables[0]), 1000);
 
   if (backTop) {
     backTop.addEventListener('click', () => {
-      if (list) list.scrollTo({ top: 0, behavior: 'smooth' });
+      const target = scrollables[0];
+      if (target) target.scrollTo({ top: 0, behavior: 'smooth' });
       else window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }

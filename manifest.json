@@ -1,0 +1,16 @@
+{
+  "name": "XB 笔记",
+  "short_name": "XB",
+  "description": "我的个人笔记库",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#654acb",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>",
+      "sizes": "100x100",
+      "type": "image/svg+xml"
+    }
+  ]
+}
