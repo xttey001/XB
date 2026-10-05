@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791218224063').then(r => r.json()),
-      fetch('data/categories.json?v=1791218224063').then(r => r.json()),
-      fetch('data/areas.json?v=1791218224063').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791218224063').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791218571026').then(r => r.json()),
+      fetch('data/categories.json?v=1791218571026').then(r => r.json()),
+      fetch('data/areas.json?v=1791218571026').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791218571026').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -300,14 +300,31 @@ function getFilteredNotes() {
       });
     }
 
-    // 搜索
+    // 搜索（Fuse.js fuzzy）
     if (state.searchQuery.trim()) {
-      const q = state.searchQuery.toLowerCase();
-      notes = notes.filter(n => {
-        const content = stripHtml(n.content || '').toLowerCase();
-        const tags = (n.tags || []).join(' ').toLowerCase();
-        const cat = (n.categoryName || '').toLowerCase();
-        return content.includes(q) || tags.includes(q) || cat.includes(q);
+      if (!window._fuseIndex) {
+        // 构建索引
+        window._fuseIndex = new Fuse(notes.map(n => ({
+          id: n.id,
+          title: (n.title || '').trim() || '',
+          content: stripHtml(n.content || '').substring(0, 2000),
+          tags: (n.tags || []).join(' '),
+          category: n.categoryName || ''
+        })), {
+          keys: ['title', 'content', 'tags', 'category'],
+          threshold: 0.4,
+          ignoreLocation: true,
+          minMatchCharLength: 2
+        });
+      }
+      const results = window._fuseIndex.search(state.searchQuery);
+      const matchedIds = new Set(results.map(r => r.item.id));
+      notes = notes.filter(n => matchedIds.has(n.id));
+      // 匹配度高的排前面
+      notes.sort((a, b) => {
+        const ra = results.find(r => r.item.id === a.id)?.score ?? 1;
+        const rb = results.find(r => r.item.id === b.id)?.score ?? 1;
+        return ra - rb;
       });
     }
   } catch (e) {
@@ -695,9 +712,8 @@ function closeSidebar() {
   let startX = 0, startY = 0, pointerId = null, active = false;
   let scrolledToTop = true; // 列表是否在顶部（顶部时才允许右滑开抽屉）
 
-  // 阈值（比之前宽松）
-  const RIGHT_EDGE = 60;      // 左边缘 60px 内开始（之前 30px 太窄！）
-  const OPEN_DX = 40;         // 右滑 40px 即触发（之前 60px）
+  // 阈值（全屏任意位置，无边缘限制）
+  const OPEN_DX = 55;         // 右滑 55px 触发（全屏任意位置）
   const CLOSE_DX = -40;       // 左滑 40px 关闭抽屉
 
   // 判断当前滚动容器是否在顶部
