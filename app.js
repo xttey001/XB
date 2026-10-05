@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791214282089').then(r => r.json()),
-      fetch('data/categories.json?v=1791214282089').then(r => r.json()),
-      fetch('data/areas.json?v=1791214282089').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791214282089').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791214610213').then(r => r.json()),
+      fetch('data/categories.json?v=1791214610213').then(r => r.json()),
+      fetch('data/areas.json?v=1791214610213').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791214610213').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -163,7 +163,7 @@ function renderCatNode(node, depth) {
     : `<span class="cat-chevron-placeholder"></span>`;
 
   let html = `<div class="cat-node" data-cat="${node.id}">
-    <button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}">
+    <button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" style="padding-left: ${depth * 14}px">
       ${chevron}
       ${iconHtml}
       <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>

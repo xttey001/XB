@@ -293,9 +293,7 @@ input { font-family: inherit; }
 }
 .cat-node { width: 100%; }
 .cat-children {
-  margin-left: 14px; /* 跟原版 depth*14px 一致 */
   border-left: 1px dashed var(--border);
-  padding-left: 2px;
 }
 .cat-chevron {
   display: inline-flex;
@@ -340,7 +338,7 @@ input { font-family: inherit; }
   font-size: 11px;
   color: var(--text-tertiary);
 }
-.cat-child { padding-left: 28px; }
+/* .cat-child padding-left 已移到 JS inline style (depth * 14px) */
 .area-group-title {
   padding: 8px 8px 2px;
   font-size: 11px;
