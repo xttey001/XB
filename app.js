@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791217008641').then(r => r.json()),
-      fetch('data/categories.json?v=1791217008641').then(r => r.json()),
-      fetch('data/areas.json?v=1791217008641').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791217008641').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791217900249').then(r => r.json()),
+      fetch('data/categories.json?v=1791217900249').then(r => r.json()),
+      fetch('data/areas.json?v=1791217900249').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791217900249').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -688,33 +688,70 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
-// 手机右滑打开侧边栏（屏幕左边缘 30px 内开始，右滑 > 60px 触发）
-(function initSwipeOpenSidebar() {
-  let startX = 0, startY = 0, touching = false, edgeTouch = false;
-  const EDGE_WIDTH = 30;
-  const MIN_DX = 60;
+// ===== 手机右滑打开侧边栏（MDN Pointer Events 现代方案） =====
+// 参考: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
+// 参考: Google Material Drawer 实现
+(function initDrawerGesture() {
+  let startX = 0, startY = 0, pointerId = null, active = false;
+  let scrolledToTop = true; // 列表是否在顶部（顶部时才允许右滑开抽屉）
 
-  document.addEventListener('touchstart', e => {
-    if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    touching = true;
-    edgeTouch = startX <= EDGE_WIDTH;
-  }, { passive: true });
+  // 阈值（比之前宽松）
+  const RIGHT_EDGE = 60;      // 左边缘 60px 内开始（之前 30px 太窄！）
+  const OPEN_DX = 40;         // 右滑 40px 即触发（之前 60px）
+  const CLOSE_DX = -40;       // 左滑 40px 关闭抽屉
 
-  document.addEventListener('touchend', e => {
-    if (!touching || !edgeTouch) { touching = false; return; }
-    const endX = e.changedTouches[0].clientX;
-    const endY = e.changedTouches[0].clientY;
-    const dx = endX - startX;
+  // 判断当前滚动容器是否在顶部
+  function checkScrollTop() {
+    const nc = document.getElementById('noteCards');
+    const la = document.querySelector('.list-area');
+    if (nc) return nc.scrollTop <= 2;
+    if (la) return la.scrollTop <= 2;
+    return window.scrollY <= 2;
+  }
+
+  document.addEventListener('pointerdown', e => {
+    // 只处理单指触摸
+    if (e.pointerType !== 'touch') return;
+    pointerId = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+    active = true;
+    scrolledToTop = checkScrollTop();
+  });
+
+  document.addEventListener('pointerup', e => {
+    if (!active || e.pointerId !== pointerId) return;
+    active = false;
+
+    const endX = e.clientX;
+    const endY = e.clientY;
+    const dx = endX - startX;       // 正 = 右滑
     const dy = Math.abs(endY - startY);
-    if (dx > MIN_DX && dx > dy) {
-      document.getElementById('sidebar').classList.add('open');
-      document.getElementById('sidebarOverlay').classList.remove('hidden');
+    const drawer = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const isOpen = drawer.classList.contains('open');
+
+    // 水平位移必须 > 垂直位移（水平为主）
+    if (Math.abs(dx) <= dy) return;
+    if (Math.abs(dx) < 20) return; // 太短不算
+
+    if (!isOpen) {
+      // 抽屉关闭 → 右滑打开（必须从边缘开始，且列表在顶部）
+      if (dx > OPEN_DX && startX <= RIGHT_EDGE && scrolledToTop) {
+        drawer.classList.add('open');
+        overlay.classList.remove('hidden');
+      }
+    } else {
+      // 抽屉打开 → 左滑关闭
+      if (dx < CLOSE_DX) {
+        drawer.classList.remove('open');
+        overlay.classList.add('hidden');
+      }
     }
-    touching = false;
-    edgeTouch = false;
-  }, { passive: true });
+  });
+
+  // pointercancel（手指滑到边缘被系统拦截）也要处理
+  document.addEventListener('pointercancel', () => { active = false; pointerId = null; });
 })();
 
 // ===== 图片路径映射 =====
