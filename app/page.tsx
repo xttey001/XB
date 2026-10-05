@@ -713,13 +713,14 @@ export default function HomePage() {
                         </div>
                       )}
                     <NoteCard
-                      note={note}
-                      categories={categories}
-                      onUpdated={handleNoteUpdated}
-                      onDeleted={handleNoteDeleted}
-                      onReposted={handleNoteCreated}
-                      scope={currentScope}
-                    />
+                        note={note}
+                        categories={categories}
+                        onUpdated={handleNoteUpdated}
+                        onDeleted={handleNoteDeleted}
+                        onReposted={handleNoteCreated}
+                        scope={currentScope}
+                        highlightQuery={searchValue || undefined}
+                      />
                   </div>
                 );
               })}
