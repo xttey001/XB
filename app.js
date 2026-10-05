@@ -1,6 +1,11 @@
 /**
- * XB 静态站点 v2 - 完整逻辑
- * 纯原生 JS，零依赖
+ * XB 静态站点 v2 - 完整逻辑（修复版）
+ * 修复:
+ *  1. highlightSearch 用 TreeWalker 操作 DOMParser 产物 → crash
+ *  2. 分类排序 order 方向反了（原应用降序 b-a，我写成 a-b）
+ *  3. 分类树按 parentId 递归嵌套（buildTree）
+ *  4. updateViewTitle 用 textContent 干掉 viewCount 子元素
+ *  5. 点击卡片 → 详情弹窗
  */
 
 let state = {
@@ -9,24 +14,20 @@ let state = {
   areas: [],
   dailyStats: {},
 
-  // 筛选状态
-  view: 'all',             // all | aClass | reviewed | pinned | favorite | important | veryImportant | liked | reposted | category
-  currentFilterId: null,   // 分类筛选时用
+  view: 'all',
+  currentFilterId: null,
   searchQuery: '',
-  dateMode: 'single',      // single | range
-  dateSingle: null,        // '2026-10-05'
+  dateMode: 'single',
+  dateSingle: null,
   dateRangeStart: null,
   dateRangeEnd: null,
-  sortBy: 'updatedAt',     // updatedAt | createdAt
+  sortBy: 'updatedAt',
 
-  // 日历
   calMonth: new Date(),
-
-  // 展开的卡片
   expandedCards: new Set(),
+  selectedNoteId: null,
 };
 
-// ===== 初始化 =====
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
@@ -42,7 +43,8 @@ async function init() {
   } catch (e) {
     document.body.innerHTML = `<div style="padding:60px;text-align:center;color:#991b1b;font-family:sans-serif;">
       数据加载失败<br><small style="color:#7c2d12">请通过 HTTP 服务器访问（不要用 file://）</small></div>`;
-    throw e;
+    console.error(e);
+    return;
   }
 
   updateCounts();
@@ -53,7 +55,6 @@ async function init() {
   bindEvents();
 }
 
-// ===== 计数 =====
 function updateCounts() {
   const n = state.notes;
   document.getElementById('countAll').textContent = n.length;
@@ -67,85 +68,105 @@ function updateCounts() {
   document.getElementById('countReposted').textContent = n.filter(x => x.isReposted).length;
 }
 
-// ===== 侧边栏：快捷视图 =====
 function renderSidebar() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === state.view && !state.currentFilterId);
   });
 }
 
-// ===== 分类树 =====
+function buildTree(flat) {
+  const map = new Map();
+  flat.forEach(c => map.set(c.id, { ...c, children: [] }));
+  const roots = [];
+  for (const node of map.values()) {
+    if (node.parentId && map.has(node.parentId)) {
+      map.get(node.parentId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  const sort = (a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.order !== b.order) return (b.order || 0) - (a.order || 0);
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  };
+  roots.sort(sort);
+  for (const node of map.values()) node.children.sort(sort);
+  return roots;
+}
+
 function renderCategories() {
   const tree = document.getElementById('categoriesTree');
-
-  // 按 area 分组
-  const grouped = {};
-  for (const c of state.categories) {
-    const key = c.areaName || '_root';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(c);
-  }
-  // parent 分组
-  for (const arr of Object.values(grouped)) {
-    arr.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      if (a.parentId !== b.parentId) return (a.parentId || '').localeCompare(b.parentId || '');
-      return (a.order || 0) - (b.order || 0);
-    });
-  }
+  const treeData = buildTree(state.categories);
 
   let html = '';
-  for (const [areaName, cats] of Object.entries(grouped)) {
+  const areas = {};
+  for (const root of treeData) {
+    const key = root.areaName || '_root';
+    if (!areas[key]) areas[key] = [];
+    areas[key].push(root);
+  }
+
+  for (const [areaName, roots] of Object.entries(areas)) {
     if (areaName !== '_root') {
       html += `<div class="area-group-title">${escapeHtml(areaName)}</div>`;
     }
-    // 顶层 + 子分类递归渲染
-    const topCats = cats.filter(c => !c.parentId);
-    for (const c of topCats) {
-      html += renderCatBtn(c, 0, cats);
+    for (const root of roots) {
+      html += renderCatNode(root, 0);
     }
   }
-  // 孤立子分类（parent 不在 state.categories 里）
-  const orphans = state.categories.filter(c => c.parentId && !state.categories.find(p => p.id === c.parentId));
-  if (orphans.length > 0) {
-    html += `<div class="area-group-title">未分类</div>`;
-    for (const c of orphans) {
-      html += renderCatBtn(c, 1, []);
-    }
-  }
+
   tree.innerHTML = html;
 }
 
-function renderCatBtn(cat, depth, allCats) {
-  const count = state.notes.filter(n => n.categoryId === cat.id).length;
-  const isActive = state.view === 'category' && state.currentFilterId === cat.id;
-  const isImg = (cat.icon || '').startsWith('/icons/');
-  const iconHtml = cat.icon
-    ? isImg ? `<span class="cat-icon"><img src="${cat.icon.replace(/^\//, '')}"></span>` : `<span class="cat-icon">${cat.icon}</span>`
-    : `<span class="cat-icon-dot" style="background:${cat.color || '#654acb'}"></span>`;
-  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${cat.id}">
+function renderCatNode(node, depth) {
+  const count = state.notes.filter(n => n.categoryId === node.id).length;
+  const isActive = state.view === 'category' && state.currentFilterId === node.id;
+  const childrenCount = countChildrenNotes(node.id);
+
+  let iconHtml;
+  const isImg = (node.icon || '').startsWith('/icons/');
+  if (node.icon) {
+    iconHtml = isImg
+      ? `<span class="cat-icon"><img src="assets${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
+      : `<span class="cat-icon">${escapeHtml(node.icon)}</span>`;
+  } else {
+    iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
+  }
+
+  let html = `<button class="cat-btn ${isActive ? 'active' : ''} ${depth > 0 ? 'cat-child' : ''}" data-cat="${node.id}">
     ${iconHtml}
-    <span style="flex:1;color:${cat.color || '#1c1917'}">${escapeHtml(cat.name)}</span>
-    ${count > 0 ? `<span class="cat-count">${count}</span>` : ''}
+    <span style="flex:1;color:${node.color || '#1c1917'}">${escapeHtml(node.name)}</span>
+    ${count > 0 || childrenCount > 0
+      ? `<span class="cat-count">${count > 0 && childrenCount > 0 ? count + '+' + childrenCount : count || childrenCount}</span>`
+      : ''}
   </button>`;
-  // 子分类
-  const children = allCats.filter(c => c.parentId === cat.id);
-  for (const child of children) {
-    html += renderCatBtn(child, depth + 1, allCats);
+  for (const child of node.children) {
+    html += renderCatNode(child, depth + 1);
   }
   return html;
 }
 
-// ===== 日历 =====
+function countChildrenNotes(parentId) {
+  let count = 0;
+  const queue = [parentId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const children = state.categories.filter(c => c.parentId === cur);
+    queue.push(...children.map(c => c.id));
+    count += state.notes.filter(n => n.categoryId === cur).length;
+  }
+  return count;
+}
+
 function renderCalendar() {
   const d = state.calMonth;
   const year = d.getFullYear();
   const month = d.getMonth();
   document.getElementById('calMonthLabel').textContent = `${year}年${month + 1}月`;
 
-  // 计算日历网格（周一为一周开始）
   const firstDay = new Date(year, month, 1);
-  const startWeekday = (firstDay.getDay() + 6) % 7; // 周一=0
+  const startWeekday = (firstDay.getDay() + 6) % 7;
   const startDate = new Date(year, month, 1 - startWeekday);
   const days = [];
   for (let i = 0; i < 42; i++) {
@@ -167,17 +188,13 @@ function renderCalendar() {
     let cls = 'cal-day';
     if (isOther) cls += ' other-month';
     if (isToday) cls += ' today';
-
-    // 单日选择
     if (state.dateMode === 'single') {
       if (state.dateSingle === dateStr) cls += ' selected';
     } else {
-      // 范围模式
       if (state.dateRangeStart === dateStr) cls += ' range-start';
       else if (state.dateRangeEnd === dateStr) cls += ' range-end';
-      else if (state.dateRangeStart && state.dateRangeEnd) {
-        if (dateStr > state.dateRangeStart && dateStr < state.dateRangeEnd) cls += ' in-range';
-      }
+      else if (state.dateRangeStart && state.dateRangeEnd
+               && dateStr > state.dateRangeStart && dateStr < state.dateRangeEnd) cls += ' in-range';
     }
 
     const dotsHtml = stat.count > 0 ? `<span class="dot">${stat.count}</span>` : '';
@@ -192,7 +209,6 @@ function renderCalendar() {
     </button>`;
   }).join('');
 
-  // 范围模式提示
   const hint = document.getElementById('calRangeHint');
   if (state.dateMode === 'range') {
     if (state.dateRangeStart && state.dateRangeEnd) {
@@ -208,7 +224,6 @@ function renderCalendar() {
     hint.classList.add('hidden');
   }
 
-  // 清除按钮
   const calClear = document.getElementById('calClear');
   calClear.classList.toggle('hidden', !(state.dateSingle || state.dateRangeStart));
 }
@@ -217,117 +232,137 @@ function formatDate(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
-// ===== 筛选 & 渲染笔记列表 =====
 function getFilteredNotes() {
   let notes = state.notes;
 
-  // 视图筛选
-  switch (state.view) {
-    case 'all': break;
-    case 'aClass': notes = notes.filter(n => n.tags.includes('A类买点')); break;
-    case 'reviewed': notes = notes.filter(n => n.reviewAt !== null); break;
-    case 'pinned': notes = notes.filter(n => n.pinnedGlobal); break;
-    case 'favorite': notes = notes.filter(n => n.isFavorite); break;
-    case 'important': notes = notes.filter(n => n.importance === 'important'); break;
-    case 'veryImportant': notes = notes.filter(n => n.importance === 'veryImportant'); break;
-    case 'liked': notes = notes.filter(n => n.hasLiked); break;
-    case 'reposted': notes = notes.filter(n => n.isReposted); break;
-    case 'category': notes = notes.filter(n => n.categoryId === state.currentFilterId); break;
+  try {
+    switch (state.view) {
+      case 'all': break;
+      case 'aClass': notes = notes.filter(n => n.tags.includes('A类买点')); break;
+      case 'reviewed': notes = notes.filter(n => n.reviewAt !== null); break;
+      case 'pinned': notes = notes.filter(n => n.pinnedGlobal); break;
+      case 'favorite': notes = notes.filter(n => n.isFavorite); break;
+      case 'important': notes = notes.filter(n => n.importance === 'important'); break;
+      case 'veryImportant': notes = notes.filter(n => n.importance === 'veryImportant'); break;
+      case 'liked': notes = notes.filter(n => n.hasLiked); break;
+      case 'reposted': notes = notes.filter(n => n.isReposted); break;
+      case 'category':
+        const idsToInclude = collectCategoryIds(state.currentFilterId);
+        notes = notes.filter(n => idsToInclude.has(n.categoryId));
+        break;
+    }
+
+    if (state.dateMode === 'single' && state.dateSingle) {
+      notes = notes.filter(n => (n.createdAt || '').startsWith(state.dateSingle));
+    } else if (state.dateMode === 'range' && state.dateRangeStart && state.dateRangeEnd) {
+      notes = notes.filter(n => {
+        const d = (n.createdAt || '').slice(0, 10);
+        return d >= state.dateRangeStart && d <= state.dateRangeEnd;
+      });
+    }
+
+    if (state.searchQuery.trim()) {
+      const q = state.searchQuery.toLowerCase();
+      notes = notes.filter(n => {
+        const content = stripHtml(n.content || '').toLowerCase();
+        const tags = (n.tags || []).join(' ').toLowerCase();
+        const cat = (n.categoryName || '').toLowerCase();
+        return content.includes(q) || tags.includes(q) || cat.includes(q);
+      });
+    }
+  } catch (e) {
+    console.error('筛选出错:', e);
   }
 
-  // 日期筛选（按 createdAt）
-  if (state.dateMode === 'single' && state.dateSingle) {
-    notes = notes.filter(n => n.createdAt.startsWith(state.dateSingle));
-  } else if (state.dateMode === 'range' && state.dateRangeStart && state.dateRangeEnd) {
-    notes = notes.filter(n => {
-      const d = n.createdAt.slice(0, 10);
-      return d >= state.dateRangeStart && d <= state.dateRangeEnd;
-    });
-  }
-
-  // 搜索
-  if (state.searchQuery.trim()) {
-    const q = state.searchQuery.toLowerCase();
-    notes = notes.filter(n => {
-      const content = stripHtml(n.content).toLowerCase();
-      const tags = n.tags.join(' ').toLowerCase();
-      const cat = (n.categoryName || '').toLowerCase();
-      return content.includes(q) || tags.includes(q) || cat.includes(q);
-    });
-  }
-
-  // 排序
   notes.sort((a, b) => {
-    const key = state.sortBy;
-    // 置顶始终在最前
     if (a.pinnedGlobal !== b.pinnedGlobal) return a.pinnedGlobal ? -1 : 1;
-    return new Date(b[key]) - new Date(a[key]);
+    const key = state.sortBy;
+    return new Date(b[key] || 0) - new Date(a[key] || 0);
   });
 
   return notes;
 }
 
-function renderNoteList() {
-  const notes = getFilteredNotes();
-  const cards = document.getElementById('noteCards');
-  const empty = document.getElementById('listEmpty');
-
-  document.getElementById('viewCount').textContent = `${notes.length} 条`;
-  updateViewTitle();
-
-  if (notes.length === 0) {
-    cards.innerHTML = '';
-    empty.classList.remove('hidden');
-    return;
+function collectCategoryIds(rootId) {
+  if (!rootId) return new Set();
+  const ids = new Set([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const children = state.categories.filter(c => c.parentId === cur);
+    for (const c of children) {
+      ids.add(c.id);
+      queue.push(c.id);
+    }
   }
-  empty.classList.add('hidden');
+  return ids;
+}
 
-  cards.innerHTML = notes.map(n => renderCard(n)).join('');
+function renderNoteList() {
+  try {
+    const notes = getFilteredNotes();
+    const cards = document.getElementById('noteCards');
+    const empty = document.getElementById('listEmpty');
 
-  // 绑定展开/收起
-  cards.querySelectorAll('.expand-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.preventDefault();
-      const cardId = btn.closest('.note-card').dataset.id;
-      toggleCard(cardId);
+    document.getElementById('viewCount').textContent = `${notes.length} 条`;
+    updateViewTitle();
+
+    if (notes.length === 0) {
+      cards.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    cards.innerHTML = notes.map(n => renderCard(n)).join('');
+
+    cards.querySelectorAll('.note-card').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('button, a, img')) return;
+        openDetail(el.dataset.id);
+      });
     });
-  });
 
-  // 绑定图片 lightbox
-  cards.querySelectorAll('.card-body img').forEach(img => {
-    img.addEventListener('click', e => {
-      e.stopPropagation();
-      showLightbox(img.src);
+    cards.querySelectorAll('.expand-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCard(btn.closest('.note-card').dataset.id);
+      });
     });
-  });
+
+    cards.querySelectorAll('.card-body img').forEach(img => {
+      img.addEventListener('click', e => {
+        e.stopPropagation();
+        showLightbox(img.src);
+      });
+    });
+  } catch (e) {
+    console.error('渲染笔记列表出错:', e);
+    const cards = document.getElementById('noteCards');
+    if (cards) cards.innerHTML = `<div class="list-empty">渲染出错: ${e.message}</div>`;
+  }
 }
 
 function renderCard(note) {
   const isExpanded = state.expandedCards.has(note.id);
-  const isCollapsible = note.content.length > 800 || stripHtml(note.content).split('\n').length > 12;
+  const content = stripHtml(note.content || '');
+  const isCollapsible = (note.content || '').length > 800 || content.split('\n').length > 12;
   const collapsedClass = isCollapsible && !isExpanded ? 'collapsed' : '';
 
-  // 分类徽章
   let catBadge = '';
   if (note.categoryName) {
     const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
     const color = note.categoryColor || '#1c1917';
-    const isImg = (note.categoryIcon || '').startsWith('/icons/');
-    const iconHtml = note.categoryIcon
-      ? isImg ? `<span class="cat-badge-icon"><img src="assets${note.categoryIcon}"></span>` : `<span class="cat-badge-icon">${note.categoryIcon}</span>`
-      : '';
-    catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${iconHtml}${escapeHtml(note.categoryName)}</span>`;
+    catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${escapeHtml(note.categoryName)}</span>`;
   }
 
-  // 重要性徽章
   let impBadge = '';
   if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
   else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
 
-  // 日期
   const dateStr = formatNiceDate(note.createdAt);
 
-  // 标签
   let tagsHtml = '';
   if (note.tags && note.tags.length > 0) {
     tagsHtml = `<div class="tags-row">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`;
@@ -339,13 +374,15 @@ function renderCard(note) {
     ? `<button class="expand-btn">${isExpanded ? '收起' : '查看全文'} ${isExpanded ? '↑' : '↓'}</button>`
     : '';
 
+  const bodyHtml = safeHighlightSearch(note.content || '');
+
   return `<article class="note-card ${note.pinnedGlobal ? 'pinned' : ''}" data-id="${note.id}">
     ${pinHtml}
     <div class="card-header">
       <div class="card-header-left">${catBadge}${impBadge}</div>
       <span class="card-date">${dateStr}</span>
     </div>
-    <div class="card-body ${collapsedClass}">${highlightSearch(note.content)}</div>
+    <div class="card-body ${collapsedClass}">${bodyHtml}</div>
     <div class="card-footer">${tagsHtml}${expandBtn}</div>
   </article>`;
 }
@@ -356,6 +393,61 @@ function toggleCard(id) {
   renderNoteList();
 }
 
+function openDetail(noteId) {
+  const note = state.notes.find(n => n.id === noteId);
+  if (!note) return;
+  state.selectedNoteId = noteId;
+
+  let catBadge = '';
+  if (note.categoryName) {
+    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
+    catBadge = `<span class="cat-badge" style="background:${bg};color:${note.categoryColor || '#1c1917'}">${escapeHtml(note.categoryName)}</span>`;
+  }
+  let impBadge = '';
+  if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
+  else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
+
+  const tagsHtml = (note.tags || []).length > 0
+    ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
+    : '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-header-left">${catBadge}${impBadge}</div>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      </div>
+      <div class="detail-meta">
+        <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
+        <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
+        ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
+        ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
+      </div>
+      ${tagsHtml}
+      <div class="modal-body card-body">${safeHighlightSearch(note.content || '')}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const onKey = e => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  };
+  document.addEventListener('keydown', onKey);
+
+  overlay.querySelectorAll('img').forEach(img => {
+    img.addEventListener('click', e => {
+      e.stopPropagation();
+      showLightbox(img.src);
+    });
+  });
+}
+
 function showLightbox(src) {
   const lb = document.createElement('div');
   lb.className = 'lightbox';
@@ -364,35 +456,35 @@ function showLightbox(src) {
   document.body.appendChild(lb);
 }
 
-function updateViewTitle() {
-  const h = document.getElementById('viewTitle');
-  const titles = {
-    all: '全部笔记',
-    aClass: 'A类买点',
-    reviewed: '回顾',
-    pinned: '置顶',
-    favorite: '收藏',
-    important: '重要',
-    veryImportant: '极重要',
-    liked: '点赞',
-    reposted: '转发',
-  };
-  if (state.view === 'category') {
-    const cat = state.categories.find(c => c.id === state.currentFilterId);
-    h.innerHTML = `${cat ? cat.name : '分类'} <span class="view-count"></span>`;
-    // 同步 viewCount
-    setTimeout(() => {
-      const countEl = document.getElementById('viewCount');
-      h.querySelector('.view-count').textContent = countEl ? countEl.textContent : '';
-    }, 0);
-  } else {
-    h.innerHTML = `${titles[state.view] || '笔记'} <span class="view-count"></span>`;
+// 安全版搜索高亮 - 纯正则替换 HTML 字符串，不操作 DOM
+function safeHighlightSearch(html) {
+  if (!state.searchQuery.trim()) return html;
+  const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    return html.replace(
+      new RegExp(`(>[^<]*)(${q})([^<]*<)`, 'gi'),
+      (match, before, hit, after) => `${before}<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">${hit}</mark>${after}`
+    );
+  } catch {
+    return html;
   }
 }
 
-// ===== 事件绑定 =====
+function updateViewTitle() {
+  const h = document.getElementById('viewTitle');
+  if (!h) return;
+  const titles = {
+    all: '全部笔记', aClass: 'A类买点', reviewed: '回顾', pinned: '置顶',
+    favorite: '收藏', important: '重要', veryImportant: '极重要',
+    liked: '点赞', reposted: '转发',
+  };
+  const label = state.view === 'category'
+    ? (state.categories.find(c => c.id === state.currentFilterId)?.name || '分类')
+    : (titles[state.view] || '笔记');
+  h.innerHTML = `${escapeHtml(label)} <span class="view-count" id="viewCount"></span>`;
+}
+
 function bindEvents() {
-  // 快捷视图
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       state.view = btn.dataset.view;
@@ -402,7 +494,6 @@ function bindEvents() {
     });
   });
 
-  // 分类
   document.getElementById('categoriesTree').addEventListener('click', e => {
     const btn = e.target.closest('.cat-btn');
     if (!btn) return;
@@ -414,55 +505,36 @@ function bindEvents() {
     renderNoteList();
   });
 
-  // 日历：模式切换
   document.querySelectorAll('.cal-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.cal-mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.dateMode = btn.dataset.mode;
-      if (state.dateMode === 'single') {
-        state.dateRangeStart = null;
-        state.dateRangeEnd = null;
-      } else {
-        state.dateSingle = null;
-      }
+      if (state.dateMode === 'single') { state.dateRangeStart = null; state.dateRangeEnd = null; }
+      else { state.dateSingle = null; }
       renderCalendar();
       renderNoteList();
     });
   });
 
-  // 日历：月份导航
   document.getElementById('calPrevMonth').addEventListener('click', () => {
-    const m = new Date(state.calMonth);
-    m.setMonth(m.getMonth() - 1);
-    state.calMonth = m;
-    renderCalendar();
+    const m = new Date(state.calMonth); m.setMonth(m.getMonth() - 1); state.calMonth = m; renderCalendar();
   });
   document.getElementById('calNextMonth').addEventListener('click', () => {
-    const m = new Date(state.calMonth);
-    m.setMonth(m.getMonth() + 1);
-    state.calMonth = m;
-    renderCalendar();
+    const m = new Date(state.calMonth); m.setMonth(m.getMonth() + 1); state.calMonth = m; renderCalendar();
   });
 
-  // 日历：日期点击（事件委托）
   document.getElementById('calGrid').addEventListener('click', e => {
     const btn = e.target.closest('.cal-day');
     if (!btn) return;
-    const dateStr = btn.dataset.date;
-    handleDateClick(dateStr);
+    handleDateClick(btn.dataset.date);
   });
 
-  // 日历清除
   document.getElementById('calClear').addEventListener('click', () => {
-    state.dateSingle = null;
-    state.dateRangeStart = null;
-    state.dateRangeEnd = null;
-    renderCalendar();
-    renderNoteList();
+    state.dateSingle = null; state.dateRangeStart = null; state.dateRangeEnd = null;
+    renderCalendar(); renderNoteList();
   });
 
-  // 搜索
   const searchInput = document.getElementById('searchInput');
   const clearSearch = document.getElementById('clearSearch');
   let searchTimer;
@@ -475,54 +547,34 @@ function bindEvents() {
     }, 150);
   });
   clearSearch.addEventListener('click', () => {
-    searchInput.value = '';
-    clearSearch.classList.add('hidden');
-    state.searchQuery = '';
-    renderNoteList();
-    searchInput.focus();
+    searchInput.value = ''; clearSearch.classList.add('hidden');
+    state.searchQuery = ''; renderNoteList(); searchInput.focus();
   });
 
-  // 排序
   document.getElementById('sortUpdated').addEventListener('click', () => setSort('updatedAt'));
   document.getElementById('sortCreated').addEventListener('click', () => setSort('createdAt'));
 
-  // 移动端
   document.getElementById('mobileMenuBtn').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('open');
     document.getElementById('sidebarOverlay').classList.toggle('hidden');
   });
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
-
-  // ESC 关闭日历/移动端
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeSidebar();
-  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
 }
 
 function handleDateClick(dateStr) {
   if (state.dateMode === 'single') {
-    if (state.dateSingle === dateStr) {
-      state.dateSingle = null;
-    } else {
-      state.dateSingle = dateStr;
-    }
+    state.dateSingle = state.dateSingle === dateStr ? null : dateStr;
   } else {
-    // 范围模式
     if (!state.dateRangeStart || (state.dateRangeStart && state.dateRangeEnd)) {
-      // 开始新范围
-      state.dateRangeStart = dateStr;
-      state.dateRangeEnd = null;
+      state.dateRangeStart = dateStr; state.dateRangeEnd = null;
     } else {
-      // 完成范围
-      let start = state.dateRangeStart;
-      let end = dateStr;
+      let start = state.dateRangeStart, end = dateStr;
       if (start > end) [start, end] = [end, start];
-      state.dateRangeStart = start;
-      state.dateRangeEnd = end;
+      state.dateRangeStart = start; state.dateRangeEnd = end;
     }
   }
-  renderCalendar();
-  renderNoteList();
+  renderCalendar(); renderNoteList();
 }
 
 function setSort(key) {
@@ -537,7 +589,6 @@ function closeSidebar() {
   document.getElementById('sidebarOverlay').classList.add('hidden');
 }
 
-// ===== 工具函数 =====
 function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
@@ -546,6 +597,7 @@ function escapeHtml(str) {
 }
 
 function stripHtml(html) {
+  if (!html) return '';
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || '';
@@ -553,40 +605,14 @@ function stripHtml(html) {
 
 function formatNiceDate(iso) {
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
   const now = new Date();
   const diffMs = now - d;
   const diffDays = Math.floor(diffMs / 86400000);
-  if (diffDays === 0) {
-    return `今天 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  } else if (diffDays === 1) {
-    return `昨天`;
-  } else if (diffDays < 7) {
-    return `${diffDays}天前`;
-  } else {
-    return `${d.getMonth() + 1}月${d.getDate()}日`;
-  }
-}
-
-function highlightSearch(html) {
-  if (!state.searchQuery.trim()) return html;
-  const q = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // 只对纯文本节点做高亮（避免破坏 HTML 标签）
-  try {
-    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
-    const walker = document.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (const node of nodes) {
-      if (node.nodeValue && new RegExp(q, 'i').test(node.nodeValue)) {
-        const div = document.createElement('div');
-        div.innerHTML = node.nodeValue.replace(new RegExp(`(${q})`, 'gi'), '<mark style="background:#fef08a;padding:0 2px;border-radius:2px;">$1</mark>');
-        node.replaceWith(...div.childNodes);
-      }
-    }
-    return doc.body.innerHTML;
-  } catch {
-    return html;
-  }
+  if (diffDays === 0) return `今天 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (diffDays === 1) return `昨天`;
+  if (diffDays < 7) return `${diffDays}天前`;
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 function hexToRgba(hex, alpha) {
@@ -597,5 +623,4 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// 启动
-init().catch(console.error);
+init().catch(e => console.error('Init failed:', e));
