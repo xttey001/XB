@@ -140,7 +140,7 @@ function renderCatNode(node, depth) {
   const isImg = (node.icon || '').startsWith('/icons/');
   if (node.icon) {
     iconHtml = isImg
-      ? `<span class="cat-icon"><img src="assets${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
+      ? `<span class="cat-icon"><img src="assets/${node.icon.replace(/^\//, '')}" onerror="this.style.display='none'"></span>`
       : `<span class="cat-icon">${escapeHtml(node.icon)}</span>`;
   } else {
     iconHtml = `<span class="cat-icon-dot" style="background:${node.color || '#654acb'}"></span>`;
