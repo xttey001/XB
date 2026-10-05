@@ -391,43 +391,38 @@ export default function NoteCard({
         </div>
       </div>
 
-      {/* 正文：长内容显示摘要，短内容显示完整富文本 */}
-      {displaySummary ? (
-        <div onClick={handleCardClick} className="cursor-pointer text-lg text-ink-800 leading-relaxed">
-          {highlightQuery ? highlightText(note.summary || '', highlightQuery) : note.summary}
-        </div>
-      ) : (
-        note.content && (
-          <div
-            onClick={handleCardClick}
-            className={cn(
-              'cursor-pointer rounded -mx-1 px-1',
-              shouldCollapse && 'note-md-collapsed'
-            )}
-          >
-            <RichTextRenderer content={highlightQuery ? highlightHtml(note.content, highlightQuery) : note.content} />
+      {/* 正文：默认显示摘要/折叠，点"查看全文"就地展开完整富文本 */}
+      <div
+        onClick={handleCardClick}
+        className={cn(
+          'cursor-pointer rounded -mx-1 px-1',
+          shouldCollapse && !expanded && 'note-md-collapsed'
+        )}
+      >
+        {displaySummary && !expanded ? (
+          // 默认态：有截断摘要 → 显示摘要纯文本
+          <div className="text-lg text-ink-800 leading-relaxed">
+            {highlightQuery ? highlightText(note.summary || '', highlightQuery) : note.summary}
           </div>
-        )
-      )}
+        ) : (
+          // 展开态 或 无摘要：渲染完整富文本
+          note.content && (
+            <RichTextRenderer content={highlightQuery ? highlightHtml(note.content, highlightQuery) : note.content} />
+          )
+        )}
+      </div>
 
-      {/* "查看全文" 按钮：就地展开（不是跳详情页） */}
+      {/* "查看全文 ↓ / 收起 ↑"：就地展开完整富文本 */}
       {(displaySummary || shouldCollapse) && (
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (expanded) {
-              setExpanded(false);
-            } else if (shouldCollapse) {
-              setExpanded(true);
-            } else {
-              // displaySummary 没有完整内容 → 跳详情
-              goToDetail();
-            }
+            setExpanded(!expanded);
           }}
           className="mt-1 inline-flex items-center gap-1 text-xs text-accent-600 hover:text-accent-700"
         >
           <Maximize2 size={11} />
-          {expanded ? '收起 ↑' : shouldCollapse ? '查看全文 ↓' : '查看详情'}
+          {expanded ? '收起 ↑' : '查看全文 ↓'}
         </button>
       )}
 
