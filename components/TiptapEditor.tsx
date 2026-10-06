@@ -6,7 +6,7 @@ import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
-import Highlight from '@tiptap/extension-highlight';
+import HighlightWithBorder from '@/lib/tiptap-highlight-ext';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import TaskList from '@tiptap/extension-task-list';
@@ -117,7 +117,7 @@ export default function TiptapEditor({
       }),
       TextStyle,
       Color,
-      Highlight.configure({ multicolor: true }),
+      HighlightWithBorder.configure({ multicolor: true }),
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TaskList,
@@ -351,12 +351,23 @@ export default function TiptapEditor({
         <TextStylePopover
           title="样式预设"
           presets={TEXT_STYLE_PRESETS}
-          onSelect={(preset) =>
+          onSelect={(preset) => {
+            // 只用官方 color 属性，渐变/条纹也塞进去
+            const bgValue = preset.bgFull ?? preset.bg;
             editor
               .chain()
               .focus()
+              .unsetHighlight()
               .setColor(preset.color)
-              .setHighlight({ color: preset.bg })
+              .setHighlight({ color: bgValue, border: preset.border } as any)
+              .run();
+          }}
+          onClear={() =>
+            editor
+              .chain()
+              .focus()
+              .unsetHighlight()
+              .unsetColor()
               .run()
           }
         >

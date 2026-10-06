@@ -11,14 +11,88 @@ export interface CalloutAttributes {
   type?: string;
 }
 
-export const CALLOUT_TYPES: Record<string, { emoji: string; bg: string; border: string }> = {
-  tip: { emoji: '💡', bg: '#FFF7ED', border: '#FED7AA' },
-  info: { emoji: 'ℹ️', bg: '#EFF6FF', border: '#BFDBFE' },
-  warning: { emoji: '⚠️', bg: '#FFFBEB', border: '#FDE68A' },
-  danger: { emoji: '🚫', bg: '#FEF2F2', border: '#FECACA' },
-  success: { emoji: '✅', bg: '#F0FDF4', border: '#BBF7D0' },
-  note: { emoji: '📝', bg: '#F5F3FF', border: '#DDD6FE' },
+/**
+ * 块级 Callout 预设。
+ *
+ * background / border 直接存完整 CSS value，
+ * 这样可以塞纯色、渐变、条纹、虚线等任意效果，
+ * 未来想加 conic-gradient / 内阴影 → 只需改数组一行。
+ */
+export const CALLOUT_TYPES: Record<
+  string,
+  { emoji: string; background: string; border: string; label: string }
+> = {
+  clear: {
+    emoji: '✏️',
+    background: '#FFFFFF',
+    border: '1px solid #E5E7EB',
+    label: '清除样式',
+  },
+  tip: {
+    emoji: '💡',
+    background: 'linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%)',
+    border: '1px solid #FDBA74',
+    label: '提示',
+  },
+  info: {
+    emoji: 'ℹ️',
+    background: 'radial-gradient(circle at 70% 20%, rgba(147,197,253,0.5) 0%, #EFF6FF 60%)',
+    border: '1px solid #93C5FD',
+    label: '信息',
+  },
+  success: {
+    emoji: '✅',
+    background: 'linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)',
+    border: '1px solid #86EFAC',
+    label: '成功',
+  },
+  warning: {
+    emoji: '⚠️',
+    background:
+      'repeating-linear-gradient(135deg, #FEF9C3 0px, #FEF9C3 6px, #FEF08A 6px, #FEF08A 7px)',
+    border: '1px dashed #FCD34D',
+    label: '警告',
+  },
+  danger: {
+    emoji: '🚫',
+    background: '#FEF2F2',
+    border: '1px solid #FCA5A5',
+    label: '危险',
+  },
+  note: {
+    emoji: '📝',
+    background: 'linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%)',
+    border: '1px solid #C4B5FD',
+    label: '笔记',
+  },
+  glow: {
+    emoji: '✨',
+    background:
+      'radial-gradient(circle at top right, rgba(147,197,253,0.4) 0%, rgba(196,181,253,0.4) 50%, #FFFFFF 100%)',
+    border: '1px solid #E5E7EB',
+    label: '光斑',
+  },
+  stripe: {
+    emoji: '🔧',
+    background:
+      'repeating-linear-gradient(45deg, #FEF9C3 0px, #FEF9C3 8px, #F9731630 8px, #F9731630 9px), #FFFFFF',
+    border: '1px dashed #F59E0B',
+    label: '条纹',
+  },
 };
+
+/** 明确的排序，避免依赖 Object.keys 枚举顺序 */
+export const CALLOUT_PRESET_ORDER = [
+  'clear',
+  'tip',
+  'info',
+  'success',
+  'warning',
+  'danger',
+  'note',
+  'glow',
+  'stripe',
+];
 
 export const CALLOUT_TYPE_KEYS = Object.keys(CALLOUT_TYPES);
 
@@ -69,7 +143,7 @@ export const Callout = Node.create<CalloutOptions>({
         'data-callout': '',
         'data-callout-type': type,
         class: 'callout',
-        style: `background-color: ${style.bg}; border-color: ${style.border}`,
+        style: `background: ${style.background}; border: ${style.border}`,
       }),
       ['div', {
         class: 'callout-emoji',
@@ -103,7 +177,6 @@ export const Callout = Node.create<CalloutOptions>({
         ({ commands, editor }: { commands: any; editor: Editor }) => {
           const { from, to } = editor.state.selection;
           const chain = commands.updateAttributes(this.name, { type });
-          // 重新渲染确保颜色同步
           return chain
             .command(({ tr }: { tr: any }) => {
               tr.setMeta('calloutUpdate', true);

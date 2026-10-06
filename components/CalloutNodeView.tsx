@@ -2,7 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { NodeViewWrapper, NodeViewContent } from '@tiptap/react';
-import { CALLOUT_TYPES, CALLOUT_TYPE_KEYS } from '@/lib/tiptap-callout';
+import {
+  CALLOUT_TYPES,
+  CALLOUT_PRESET_ORDER,
+} from '@/lib/tiptap-callout';
 import { cn } from '@/lib/utils';
 
 export default function CalloutNodeView(props: any) {
@@ -27,7 +30,10 @@ export default function CalloutNodeView(props: any) {
   }, [showPicker]);
 
   const applyType = (newType: string) => {
-    updateAttributes({ type: newType, emoji: CALLOUT_TYPES[newType]?.emoji ?? emoji });
+    updateAttributes({
+      type: newType,
+      emoji: CALLOUT_TYPES[newType]?.emoji ?? emoji,
+    });
     setShowPicker(false);
   };
 
@@ -36,8 +42,8 @@ export default function CalloutNodeView(props: any) {
       <div
         className="callout"
         style={{
-          backgroundColor: style.bg,
-          borderColor: style.border,
+          background: style.background,
+          border: style.border,
         }}
       >
         <div
@@ -53,7 +59,7 @@ export default function CalloutNodeView(props: any) {
           {emoji}
           {showPicker && (
             <div className="absolute z-50 left-0 top-full mt-1 p-2 rounded-lg border border-ink-200 bg-white shadow-lg grid grid-cols-3 gap-1.5 w-[150px]">
-              {CALLOUT_TYPE_KEYS.map((t) => {
+              {CALLOUT_PRESET_ORDER.map((t) => {
                 const s = CALLOUT_TYPES[t];
                 return (
                   <button
@@ -67,14 +73,14 @@ export default function CalloutNodeView(props: any) {
                     className={cn(
                       'w-10 h-10 rounded-md border flex items-center justify-center text-lg transition-transform hover:scale-105',
                       type === t
-                        ? 'border-ink-800 ring-1 ring-ink-800'
+                        ? 'border-ink-800 ring-2 ring-ink-800 ring-offset-1'
                         : 'border-ink-200'
                     )}
                     style={{
-                      backgroundColor: s.bg,
-                      borderColor: s.border,
+                      background: s.background,
+                      border: s.border,
                     }}
-                    title={t}
+                    title={s.label}
                   >
                     {s.emoji}
                   </button>
