@@ -1,4 +1,4 @@
-﻿/**
+/**
  * XB 静态站点 v2 - 完整逻辑（修复版）
  * Bug 修复：
  *  1. highlightSearch 用 TreeWalker 操作 DOMParser 产物 → crash
@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1791319017665').then(r => r.json()),
-      fetch('data/categories.json?v=1791319017665').then(r => r.json()),
-      fetch('data/areas.json?v=1791319017665').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1791319017665').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1791365782018').then(r => r.json()),
+      fetch('data/categories.json?v=1791365782018').then(r => r.json()),
+      fetch('data/areas.json?v=1791365782018').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1791365782018').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -439,7 +439,7 @@ function renderCard(note) {
     : '';
 
   // 修 content 里可能有的 img src + 搜索高亮
-  const bodyHtml = safeHighlightSearch(fixImgSrcInHtml(note.content || ''));
+  const bodyHtml = safeHighlightSearch(fixNoteLinksInHtml(fixImgSrcInHtml(note.content || '')));
 
   // 图片网格（images 字段）
   const imagesHtml = note.images && note.images.length > 0
@@ -504,7 +504,7 @@ function openDetail(noteId) {
         ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
       </div>
       ${tagsHtml}
-      <div class="modal-body card-body">${safeHighlightSearch(fixImgSrcInHtml(note.content || ''))}</div>
+      <div class="modal-body card-body">${safeHighlightSearch(fixNoteLinksInHtml(fixImgSrcInHtml(note.content || '')))}</div>
       ${imagesHtml}
     </div>
   `;
@@ -764,6 +764,15 @@ function fixImgSrcInHtml(html) {
   return html.replace(/(<img[^>]*\bsrc=["'])([^"']+)(["'])/gi, (m, prefix, src, suffix) => {
     if (src.startsWith('data:') || src.startsWith('http')) return m;
     return prefix + resolveUploadPath(src) + suffix;
+  });
+}
+
+// 修正笔记内链接：Next.js 路由 /note/[id] → 静态站 showDetail(noteId)
+// 只替换 href="/note/xxx" 这个属性值，保留其他所有属性（target, rel, class 等）
+function fixNoteLinksInHtml(html) {
+  if (!html) return '';
+  return html.replace(/href=["']\/note\/([a-zA-Z0-9]+)["']/gi, (m, noteId) => {
+    return `href="javascript:void(0)" data-note-id="${noteId}" onclick="showDetail('${noteId}')"`;
   });
 }
 
