@@ -1,6 +1,6 @@
 ---
 name: "xb-notes-rules"
-description: "XB 笔记项目的开发规则与约定。在每次修改或新增 XB 笔记功能前调用，确保代码风格、数据模型、API 设计保持一致。"
+description: "XB 笔记项目（Next.js + Prisma + SQLite + Tailwind）开发规则 + 跨项目前端陷阱库。规则篇：数据模型约定、API 设计、组件规范、样式约定、启动与桌面集成、禁止事项。经验篇附录（跨项目通用）：CSS 选择器父子依赖静默失效、移动端右滑抽屉触摸手势、React 搜索组件 Fuse.js 六大陷阱。触发词：搜索高亮不显示、右滑不出抽屉、pointer events 不触发、Touch vs Pointer、CSS 父类依赖、Fuse.js threshold、即搜没实现、Cannot read 'pinned'、displayNotes 越界、highlightQuery 漏传、push.bat 固定文件列表、git push 没推上、npm.ps1 装不上、bat 乱码、PowerShell 执行策略、scope 置顶不生效、多视图排序互扰、分类颜色不显示、数据模型改了要同步 types + Prisma + API DTO。"
 ---
 
 # XB 笔记项目规则
@@ -98,6 +98,56 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
 - 桌面快捷方式目标必须是 `start-xb-notes.vbs`，不能是 bat 或 ps1（ps1 会被系统默认用记事本打开，bat 会乱码）。
 - 禁止再创建任何包含中文的 `.bat` 启动脚本。
 
+## 10. 搜索功能约定
+
+- **NoteCard 搜索高亮传递链**：搜索功能涉及 NoteCard 的页面（首页 page.tsx、搜索页 SearchPageContent.tsx），**必须传 highlightQuery prop**：
+  - ✅ `<NoteCard note={note} highlightQuery={searchValue || undefined} />`
+  - ❌ 漏传 highlightQuery → 搜索结果有黄底 mark 但详情页没边框高亮
+
+- **高亮样式统一**：搜索命中关键词统一用 `.search-highlight` 类（琥珀色外描边 box-shadow + 黄底 #FEF08A），**禁止混用 Tailwind `<mark className="bg-yellow-200">`**，否则搜索结果和详情页高亮样式不一致。
+
+- **渲染数组同步原则**：改了 displayNotes（搜索过滤后）后，所有辅助逻辑（置顶分隔线、pinned 检查等）**必须同步用 displayNotes 引用上一条**，不能还引用原始 notes 数组。否则 `displayNotes[idx-1]` 越界 undefined 导致崩溃。
+
+- **详情页搜索定位**：从搜索结果点进详情时 NoteCard 必须带 `?q=关键词` query param，详情页 `searchParams.get('q')` 传给 RichTextRenderer，后者会安全注入 `<span class="search-highlight" data-search-highlight="true">` 并自动 scrollIntoView 到第一个匹配。
+
+## 11. 版本发布约定
+
+### 三大推送陷阱（本次会话实测全中）
+
+| # | 陷阱 | 症状 | 根因 | 修复 |
+|---|---|---|---|---|
+| 1 | **push.bat 只 add 固定文件** | 改了 page.tsx / NoteCard.tsx / globals.css → 手机刷新没变化 | push.bat Step 3 硬编码了 6 个文件（app.js / styles.css / index.html / sw.js / manifest.json / static-site.md），其他文件被静默跳过 | **先 `git add -A && git commit && git push origin main`**，再跑 push.bat |
+| 2 | **Node 脚本替换字符串匹配不上** | 跑了 `_quick_fixes.js` / `_patch.js` 等临时脚本，脚本输出"替换了 3 处"，但实际文件没改 | 用 `content.replace(old, new)` 做修改，但 **old 字符串和实际文件里的缩进/空格/换行不完全一致**（文件可能有 2 空格缩进，我写的 old_string 用了 4 空格），replace 返回原串但脚本没检查返回值就打印成功 | **禁止用 Node 脚本改代码**，改用 Edit 工具（它会精确匹配实际文件内容） |
+| 3 | **口头宣称"推送成功"但没验证远端** | AI 打印"✅ 推送成功！"，但 `git push` 输出可能被截断，根本没推上去 | 只看命令的 exit code=0 就宣告成功，**没验证远端确实有这个 commit** | 推完必须 `git log origin/main -1 --oneline` 确认远端最新 commit hash 和本地一致 |
+
+### 反模式清单
+❌ 用 Node/PowerShell 临时脚本改代码 → 缩进/换行不一致导致静默失败
+❌ 跑完 push.bat 就以为改的都推上了 → 它只同步静态站那 6 个文件
+❌ 推完不验证远端 → exit code=0 不代表文件真的到了 GitHub
+
+### 标准流程（3 步）
+
+```bash
+# Step 1: 改完代码 → 先推 main（包含所有改动）
+git add -A
+git commit -m "fix: 具体改了什么"
+git push origin main
+
+# Step 2: 验证远端（必须做！）
+git log origin/main -1 --oneline
+# 应该看到刚才的 commit hash
+
+# Step 3: 再同步静态站（只涉及 public-site 那 6 个固定文件）
+.\push.bat
+```
+
+### 附加：PowerShell 执行策略陷阱
+
+Windows PowerShell 默认执行策略为 Restricted，会拦截 `npm.ps1`、自写 `.ps1` 脚本。三种绕过方式按推荐顺序：
+1. **直接调用真实 exe**：`& "C:\Program Files\nodejs\npm.cmd" install fuse.js`
+2. **一次性绕过**：`powershell -ExecutionPolicy Bypass -Command "..."`
+3. **永久改策略**（有风险）：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
 ## 9. 禁止事项
 
 - 不要为临时操作创建新工具函数或抽象。
@@ -105,3 +155,193 @@ description: "XB 笔记项目的开发规则与约定。在每次修改或新增
 - 不要在 API 中混合 scope 的置顶/排序字段。
 - 不要在前端列表中默认展开 `NoteSocial` 评论面板。
 - 不要使用中文 `.bat` 脚本作为用户启动入口。
+
+---
+
+# 附录：跨项目通用经验（前端陷阱集合）
+
+> 以下模块来自 XB 笔记开发过程中踩到的跨项目通用陷阱，任何 React/Next.js/移动端项目都可能遇到。
+> 触发词：搜索高亮不显示、右滑不出抽屉、pointer events 不触发、Touch vs Pointer、CSS 选择器父子依赖、Fuse.js threshold、即搜没实现、Cannot read property 'pinned' of undefined
+
+---
+
+## 附录模块 A：CSS 选择器父子依赖静默失效
+
+### AI 快速索引
+| 用户反馈关键词 | 推荐查阅 | 优先级 |
+|--------------|---------|--------|
+| 搜索高亮不显示 | 核心方案：避免父子依赖 | 最高 |
+| Tailwind 没生效 | 选择器层级陷阱 | 高 |
+| 自定义类名加了但样式没应用 | 全局选择器修复 | 高 |
+
+### 核心问题
+**症状**：CSS 写了 `.note-md span.search-highlight { background: red }` 但页面 span 显示默认样式。F12 检查发现 computed style 里根本没有这条规则。
+
+**根因**：CSS 选择器里的父类（`.note-md`）在目标元素的真实 DOM 树里**不存在**——可能是组件重构时删了父容器的 class、或者不同页面用了不同容器。
+
+### 核心方案
+❌ **反模式**（依赖父类的层级选择器）：
+```css
+.note-md span.search-highlight { ... }   /* 只有在 .note-md 里才生效 */
+.card .search-highlight { ... }          /* 依赖 .card 父类 */
+```
+
+✅ **正确模式**（让可复用样式类**不依赖父类**）：
+```css
+span.search-highlight { ... }            /* 全局生效，谁用都能匹配 */
+.search-highlight { ... }                /* 连标签名都省了，更通用 */
+```
+
+### 最佳实践
+1. 写 CSS 前，先确认目标元素的 DOM 层级（F12 看元素面板）
+2. 通用高亮/状态类（如 `.search-highlight`、`.active`）**禁止加父类前缀**
+3. 只有页面独有的、且确实需要限定范围的样式才加父类
+4. 改组件结构（如换容器 div）时，要全局 grep 这个类名的 CSS 选择器
+
+### 本次案例
+NoteCard 正文容器没 `.note-md` 类但 CSS 选了 `.note-md span.search-highlight`，结果搜索结果卡片高亮是纯 Tailwind 黄底（没边框），详情页（有 `.note-md` 容器）高亮正常（黄底+琥珀外描边）。**两套样式不一致**。修复：改 CSS 选择器为全局 `span.search-highlight`。
+
+---
+
+## 附录模块 B：移动端触摸手势实现（右滑抽屉/下拉刷新）
+
+### AI 快速索引
+| 用户反馈关键词 | 推荐查阅 | 优先级 |
+|--------------|---------|--------|
+| 右滑不出抽屉 | Touch Events 稳过 Pointer Events | 最高 |
+| 手势不稳定 | touch-action 配合 | 最高 |
+| pointer events 不触发 | 改回 touchstart/touchend | 高 |
+| Edge detection 太严 | 全屏放开 + scrollTop 守卫 | 高 |
+
+### 核心根因（按概率排序）
+1. **用了 Pointer Events**（`pointerdown`/`pointerup`）—— iOS Safari 对 pointer events 的 passiveness 处理不如 touch events 稳定
+2. **没设 touch-action CSS** —— 浏览器默认拦截水平手势做"页面水平滚动/后退导航"
+3. **边缘检测太窄**（如 EDGE_WIDTH=20-30px）—— 用户手指比这宽、或第一次触不在边缘
+4. **没 scrollTop 守卫** —— 列表滚中间时右滑也触发，用户想滚回去却开了抽屉，反直觉
+
+### 标准方案
+
+**Step 1：CSS 先铺路**
+```css
+body { touch-action: pan-y; }       /* 垂直滚动归浏览器，水平手势归 JS */
+#drawer-area { touch-action: none; } /* 抽屉区域完全禁用，让 JS 接管 */
+```
+
+**Step 2：用 Touch Events（别用 Pointer Events）**
+```js
+let startX = 0, startY = 0, canSwipe = true;
+
+el.addEventListener('touchstart', (e) => {
+  startX = e.touches[0].clientX;
+  startY = e.touches[0].clientY;
+  canSwipe = el.scrollTop <= 5;  // 只在列表顶部允许右滑
+}, { passive: true });
+
+el.addEventListener('touchend', (e) => {
+  const dx = e.changedTouches[0].clientX - startX;
+  const dy = e.changedTouches[0].clientY - startY;
+  // 水平位移 > 50px 且 > 垂直位移 且 在顶部
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) && canSwipe) {
+    openDrawer();
+  }
+}, { passive: true });
+
+el.addEventListener('touchcancel', cleanup, { passive: true }); // 手指滑到屏幕边缘会触发
+```
+
+**Step 3：阈值设计**
+| 参数 | 推荐值 | 理由 |
+|------|--------|------|
+| 边缘限制 | **不限制**（全屏任意位置） | 用户体验最好，手指放哪都能开 |
+| OPEN_DX | 40-55px | 手机宽度的 10-15%，够明显但不费力 |
+| VERTICAL_SLOPE | `Math.abs(dx) > Math.abs(dy)` | 防止竖滑误触发 |
+| scrollTop 守卫 | `scrollTop <= 5` | 只在顶部允许，滚中间时用户可能想滚回去 |
+
+### 反模式清单
+❌ `pointerdown` / `pointerup` —— 移动端稳定性不如 touch events（尤其是 iOS Safari）
+❌ 边缘检测 EDGE_WIDTH=20-30px —— 太窄，手指稍偏就 miss
+❌ 没 scrollTop 守卫 —— 列表滚到一半右滑开抽屉，反直觉
+❌ 不设 touch-action —— 浏览器拦截水平手势做页面导航
+
+### 最佳实践清单
+✅ 优先 Touch Events，Pointer Events 作为兜底
+✅ CSS `touch-action: pan-y` 告诉浏览器"我管水平"
+✅ `{ passive: true }` 不阻塞滚动性能
+✅ `touchcancel` 事件也清理状态（手指滑到屏幕边缘被系统拦截时触发）
+✅ 右滑过程中加抽屉阴影预览反馈（translateX 跟随手指位移）
+
+---
+
+## 附录模块 C：React 搜索组件陷阱集合
+
+### AI 快速索引
+| 用户反馈关键词 | 推荐查阅 | 优先级 |
+|--------------|---------|--------|
+| 即搜没实现 | searchValue 只 setState 没参与过滤 | 最高 |
+| 搜索后点击崩溃 Cannot read 'pinned' | 渲染数组改了辅助逻辑没同步 | 最高 |
+| 某页搜索高亮不显示 | props 传递断链 highlightQuery 漏传 | 高 |
+| Fuse.js 第一次搜慢 | 索引懒构建 → init 后立即构建 | 高 |
+| Fuse.js threshold 调多少 | 中文推荐 0.4 + ignoreLocation | 高 |
+
+### 六大陷阱
+
+| # | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 输入搜索词列表没变化 | `searchValue` 只 setState，`displayNotes` **完全没引用它** | filter 逻辑引用 searchValue 重新计算 displayNotes |
+| 2 | 搜索后点击崩溃 `Cannot read 'pinned' of undefined` | 渲染用 `displayNotes`，但辅助逻辑 `notes[idx-1]` 还引用**原始 notes 数组** | 全改成 `displayNotes[idx-1]` |
+| 3 | 某页面搜索高亮 mark 不存在 | SearchPageContent 传了 `highlightQuery`，**首页 page.tsx 忘了传** | grep 所有 NoteCard 调用，统一加上 |
+| 4 | 第一次搜索明显卡一下 | Fuse 索引在 filterNotes 里**懒构建**（搜了才建） | init 后立即构建，缓存到 `window._fuseIndex` |
+| 5 | 中文搜索一堆不相关结果 | threshold 太高 + 没设 ignoreLocation | threshold=0.4, ignoreLocation=true, minMatchCharLength=2 |
+| 6 | 清空搜索后结果不变 | displayNotes memo 依赖数组**漏了 searchValue** | `useMemo(..., [searchValue, allNotes])` |
+
+### 标准代码模板（Fuse.js 即搜 + debounce）
+
+```jsx
+// 1. init 时拉全量 + 构建索引（不要懒）
+useEffect(() => {
+  api.listAllNotes().then(all => {
+    window._fuseIndex = new Fuse(all, {
+      keys: ['title', 'content', 'tags', 'category'],
+      threshold: 0.4,
+      ignoreLocation: true,
+      minMatchCharLength: 2,
+    });
+    setAllNotes(all);
+  });
+}, []);
+
+// 2. debounce 的过滤
+const handleSearchChange = useCallback(debounce((q) => {
+  if (!q.trim() || !window._fuseIndex) {
+    setDisplayNotes(allNotes);  // 空搜索 → 还原全量
+    return;
+  }
+  const results = window._fuseIndex.search(q);
+  setDisplayNotes(results.map(r => r.item));
+}, 250), [allNotes]);
+
+// 3. input onChange 触发
+const onInputChange = (e) => {
+  setSearchValue(e.target.value);
+  handleSearchChange(e.target.value);
+};
+
+// 4. 渲染时**全用 displayNotes**（包括辅助逻辑）
+displayNotes.map((note, idx) => {
+  const prevPinned = displayNotes[idx - 1]?.pinned;  // ✅ displayNotes
+  return <NoteCard note={note} highlightQuery={searchValue} />;
+});
+```
+
+### Fuse.js 中文搜索配置对照表
+| 场景 | threshold | ignoreLocation | minMatchCharLength | includeScore |
+|------|-----------|----------------|-------------------|-------------|
+| 中文笔记模糊搜 | 0.4 | true | 2 | true（排序用） |
+| 英文技术文档 | 0.3 | true | 3 | true |
+| 用户名/ID 精确搜 | 0.1 | false | 1 | false |
+
+### 反模式清单
+❌ `threshold: 0.6+` —— 中文结果会乱，一堆不相关的
+❌ 索引懒构建 —— 第一次搜索才建，用户体感延迟
+❌ 渲染数组（displayNotes）和辅助逻辑（notes）混用 —— 越界 undefined 崩溃
+❌ highlightQuery 只在部分页面传 —— 搜索高亮样式断链

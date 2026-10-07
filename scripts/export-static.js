@@ -206,6 +206,15 @@ function normalizeNoteContent(html) {
   const { copied, skipped } = copyDirIncremental(PUBLIC_UPLOADS, ASSETS_OUT);
   console.log(`  ✅ 新增/更新 ${copied} 张，跳过 ${skipped} 张（已存在且未变）`);
 
+  // 7b. 复制分类图标
+  const PUBLIC_ICONS = path.join(ROOT, 'public', 'icons');
+  const ICONS_OUT = path.join(STATIC_SITE, 'assets', 'icons');
+  if (fs.existsSync(PUBLIC_ICONS)) {
+    console.log('\n🎨  复制 icons 图标...');
+    const { copied: ic, skipped: is_ } = copyDirIncremental(PUBLIC_ICONS, ICONS_OUT);
+    console.log(`  ✅ 新增/更新 ${ic} 个，跳过 ${is_} 个`);
+  }
+
   // 8. 给 app.js 里的 data fetch 加版本号（防浏览器强缓存 notes.json）
   const appJsPath = path.join(STATIC_SITE, 'app.js');
   if (fs.existsSync(appJsPath)) {

@@ -36,6 +36,7 @@ export default function NoteDetailPage() {
   const searchParams = useSearchParams();
   const fromKnowledge = searchParams.get('from') === 'knowledge';
   const areaId = searchParams.get('areaId');
+  const highlightQuery = searchParams.get('q') || undefined;
   const [note, setNote] = useState<NoteDTO | null>(null);
   const [categories, setCategories] = useState<CategoryDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -297,7 +298,7 @@ export default function NoteDetailPage() {
 
           {/* 正文 */}
           {note.content && (
-            <RichTextRenderer content={note.content} />
+            <RichTextRenderer content={note.content} highlightQuery={highlightQuery} />
           )}
 
           {/* 图片（大图展示，非九宫格） */}
