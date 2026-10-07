@@ -767,12 +767,12 @@ function fixImgSrcInHtml(html) {
   });
 }
 
-// 修正笔记内链接：Next.js 路由 /note/[id] → 静态站 showDetail(noteId)
+// 修正笔记内链接：Next.js 路由 /note/[id] → 静态站 openDetail(noteId)
 // 只替换 href="/note/xxx" 这个属性值，保留其他所有属性（target, rel, class 等）
 function fixNoteLinksInHtml(html) {
   if (!html) return '';
   return html.replace(/href=["']\/note\/([a-zA-Z0-9]+)["']/gi, (m, noteId) => {
-    return `href="javascript:void(0)" data-note-id="${noteId}" onclick="showDetail('${noteId}')"`;
+    return `href="javascript:void(0)" data-note-id="${noteId}" onclick="openDetail('${noteId}')"`;
   });
 }
 
