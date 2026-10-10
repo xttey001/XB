@@ -17,7 +17,7 @@ d:\XB\                    ← Next.js 原版仓库（main 分支）
   │   ├── app.js          ← 原生 JS（所有逻辑手写）
   │   ├── styles.css      ← 原生 CSS（不是 Tailwind！）
   │   ├── data/           ← JSON 数据文件
-  │   └── assets/         ← 图片资源
+  │   └── assets/         ← 资源目录（uploads/=笔记图片, icons/=分类图标）
   └── ...
 ```
 
@@ -560,6 +560,124 @@ echo "首 3 字节: $($bytes[0..2] -join ',')"  # 期望不是 239,187,191（UTF
 ```
 
 **更稳的做法**：bat 里**全用英文 echo**，彻底规避编码问题。
+
+---
+
+### 坑 #19：export-static.js 漏复制 icons 目录 —— 分类图标丢失
+
+**症状**：静态站上某些分类（如"顶级交易员"里的 kking2020、神鱼）图标显示裂图或空白。
+
+**根因**：Next.js 原版的分类图标在 `public/icons/`（每个分类一个 PNG），但 export-static.js 只复制了 `public/uploads/`，**完全漏掉了 icons 目录**。
+
+**检查**：
+```powershell
+# 看原版有没有这个图标
+Test-Path "d:\XB\public\icons\category_xxx.png"
+
+# 看静态站 assets/icons/ 有没有
+Test-Path "d:\XB\public-site\assets\icons\category_xxx.png"
+```
+
+**解法**：export-static.js 里加一段增量复制：
+```js
+// export-static.js ~L209
+const PUBLIC_ICONS = path.join(ROOT, 'public', 'icons');
+const STATIC_ICONS = path.join(STATIC_SITE, 'assets', 'icons');
+if (fs.existsSync(PUBLIC_ICONS)) {
+  copyDirIncremental(PUBLIC_ICONS, STATIC_ICONS);
+  console.log(`🎨  复制 icons 图标...`);
+}
+```
+
+**静态站 app.js 渲染分类图标的路径**：`assets/icons/category_xxx.png`（注意没有 `uploads/` 前缀）。
+
+---
+
+### 坑 #20：Next.js /note/[id] 内链 → 静态站 404
+
+**症状**：笔记内容里有 `<a href="/note/cmsug9gd5000311e19fwofctf">` 这种链接，点击后跳 404 空页。
+
+**根因**：这些是 Next.js App Router 的动态路由（`app/note/[id]/page.tsx`），静态站没有这个路由 → 404。
+
+**解法**：在静态站 app.js 里加 `fixNoteLinksInHtml()` 函数，**渲染内容前先跑一遍正则替换**：
+
+```js
+// app.js — 修正笔记内链接
+function fixNoteLinksInHtml(html) {
+  if (!html) return '';
+  // ① 先删掉 target="_blank"（坑 #21 必须同步做！）
+  html = html.replace(/\s+target\s*=\s*["']?_blank["']?/gi, '');
+  // ② 把 href="/note/xxx" 改成模态框调用
+  html = html.replace(/href=["']\/note\/([a-zA-Z0-9]+)["']/gi, (m, noteId) => {
+    return `href="javascript:void(0)" data-note-id="${noteId}" onclick="openDetail('${noteId}')"`;
+  });
+  return html;
+}
+```
+
+**两处调用**（卡片 body + 模态框 body）：
+```js
+// renderNoteCard 里卡片预览
+const bodyHtml = safeHighlightSearch(fixNoteLinksInHtml(fixImgSrcInHtml(note.content || '')));
+
+// openDetail 里模态框内容
+modal-body.innerHTML = fixNoteLinksInHtml(fixImgSrcInHtml(note.content || ''));
+```
+
+**⚠️ 函数名必须是 `openDetail`**（不是 `showDetail` 或别的）。在 app.js 里搜 `function openDetail` 确认名字。
+
+**⚠️ 渲染调用处必须也调用 fixNoteLinksInHtml**，不能只加函数不调用。
+
+---
+
+### 坑 #21：target="_blank" 残留 —— 点内链还开 about:blank 空页
+
+**症状**：点内链弹出了模态框 ✅，但同时浏览器还新开一个空白标签页（about:blank）❌。
+
+**根因**：原笔记里的 `<a>` 标签带 `target="_blank"`（Next.js 里写笔记时 RichTextRenderer 默认加的）。只改 `href` 没删 `target="_blank"` → 浏览器看到 `target="_blank"` 就新开标签页，哪怕 href 是 `javascript:void(0)`。
+
+**原链接**：
+```html
+<a target="_blank" rel="noopener noreferrer nofollow" 
+   class="note-link" href="/note/cmsug9gd5000311e19fwofctf">标题</a>
+```
+
+**修复后**（两步都要做）：
+```html
+<a rel="noopener noreferrer nofollow" class="note-link"
+   href="javascript:void(0)"
+   data-note-id="cmsug9gd5000311e19fwofctf"
+   onclick="openDetail('cmsug9gd5000311e19fwofctf')">标题</a>
+<!--    ↑ target="_blank" 被删掉了                        -->
+```
+
+**教训**：改 HTML 属性时，如果改了 `href` / `src` 这类"跳转目标"属性，必须检查有没有 `target` 属性要同步处理。`target="_blank"` 对外链（如 `https://...`）有用，但对内链模态框是多余有害的。
+
+---
+
+### 💡 静态站调试经验（踩坑 #20 #21 时总结）
+
+**用 `git show` 验证远程代码，别用 WebFetch！**
+
+GitHub Pages 背后有 CDN 缓存。用 `WebFetch https://raw.githubusercontent.com/...` 拉远程文件可能拿到 **几小时前的旧版**（391 行截断 vs 本地 1100 行完整版），导致你误以为远程代码是对的，浪费时间排查不存在的 bug。
+
+```powershell
+# ✅ 可靠：直接查 git commit 里的内容
+cd d:\XB\public-site
+git log --oneline -5                                    # 看最新 commit
+git show HEAD:app.js | Select-String "fixNoteLinksInHtml" -Context 0,3
+
+# ❌ 不可靠：可能拿到 CDN 缓存的旧版
+WebFetch "https://raw.githubusercontent.com/xttey001/XB/gh-pages/app.js"
+```
+
+**本地先用 http.server 验证，再推！**
+
+```powershell
+cd d:\XB\public-site
+python -m http.server 8080
+# 浏览器打开 http://localhost:8080 → F12 Console 看有没有 JS 错误
+```
 
 ---
 
