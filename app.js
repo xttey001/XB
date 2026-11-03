@@ -414,18 +414,35 @@ function renderCard(note) {
   const isCollapsible = (note.content || '').length > 800 || content.split('\n').length > 12;
   const collapsedClass = isCollapsible && !isExpanded ? 'collapsed' : '';
 
-  let catBadge = '';
-  if (note.categoryName) {
-    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : 'var(--surface-alt)';
-    const color = note.categoryColor || 'var(--text)';
-    catBadge = `<span class="cat-badge" style="background:${bg};color:${color}">${escapeHtml(note.categoryName)}</span>`;
+  // ===== 推特式头部：左 40px 大圆形分类头像 + 右内容区 =====
+  // 与原项目 components/NoteCard.tsx:268-308 严格对齐
+  const avatarBg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f3f4f6';
+  const catIconRaw = (note.categoryIcon || '').trim();
+  let avatarInner = '';
+  if (catIconRaw.startsWith('/') || catIconRaw.startsWith('http')) {
+    // 图片图标 → 圆形裁切显示
+    const src = catIconRaw.startsWith('http') ? catIconRaw : resolveUploadPath(catIconRaw);
+    avatarInner = `<img src="${src}" alt="" class="card-cat-avatar-img" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'"><span class="card-cat-avatar-fallback" style="display:none">📝</span>`;
+  } else if (catIconRaw && !catIconRaw.startsWith('/')) {
+    // emoji / 文字图标
+    avatarInner = `<span class="card-cat-avatar-emoji">${escapeHtml(catIconRaw)}</span>`;
+  } else {
+    // 完全没图标 → 📝 兜底
+    avatarInner = `<span class="card-cat-avatar-emoji">📝</span>`;
   }
+  const avatarHtml = `<div class="card-cat-avatar" style="background-color:${avatarBg}">${avatarInner}</div>`;
 
+  // 分类名（原项目 font-bold text-[15px]）
+  const catNameHtml = note.categoryName
+    ? `<span class="card-cat-name" style="color:${note.categoryColor || 'var(--text)'}">${escapeHtml(note.categoryName)}</span>`
+    : '';
+
+  const dateStr = formatNiceDate(note.createdAt);
+
+  // 重要性小徽章（仍保留，在名字行内）
   let impBadge = '';
   if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
   else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
-
-  const dateStr = formatNiceDate(note.createdAt);
 
   let tagsHtml = '';
   if (note.tags && note.tags.length > 0) {
@@ -448,12 +465,16 @@ function renderCard(note) {
 
   return `<article class="note-card ${note.pinnedGlobal ? 'pinned' : ''}" data-id="${note.id}">
     ${pinHtml}
-    <div class="card-header">
-      <div class="card-header-left">${catBadge}${impBadge}</div>
-      <span class="card-date">${dateStr}</span>
+    <div class="card-top-row">
+      ${avatarHtml}
+      <div class="card-top-content">
+        <div class="card-top-meta">
+          <div class="card-top-name-row">${catNameHtml}<span class="card-top-date">${dateStr}</span>${impBadge}</div>
+        </div>
+        <div class="card-body ${collapsedClass}">${bodyHtml}</div>
+        ${imagesHtml}
+      </div>
     </div>
-    <div class="card-body ${collapsedClass}">${bodyHtml}</div>
-    ${imagesHtml}
     <div class="card-footer">${tagsHtml}${expandBtn}</div>
   </article>`;
 }

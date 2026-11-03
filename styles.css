@@ -521,17 +521,65 @@ input { font-family: inherit; }
   font-weight: 500;
   border-radius: 10px;
 }
-.card-header {
+/* ===== 推特式卡片头部（与原项目 NoteCard.tsx:268-308 严格对齐）===== */
+.card-top-row {
   display: flex;
-  justify-content: space-between;
+  gap: 12px;                    /* gap-3 = 12px，原项目 */
   align-items: flex-start;
-  margin-bottom: 8px;
 }
-.card-header-left {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+.card-cat-avatar {
+  width: 40px; height: 40px;   /* w-10 h-10 = 40px，原项目 */
+  border-radius: 50%;           /* rounded-full */
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+}
+.card-cat-avatar-img {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.card-cat-avatar-emoji {
+  font-size: 20px;              /* text-xl = 20px，原项目 */
+  line-height: 1;
+}
+.card-cat-avatar-fallback {
+  font-size: 20px;
+  line-height: 1;
+}
+.card-top-content {
+  flex: 1;
+  min-width: 0;                 /* 允许 flex 子项收缩 */
+}
+.card-top-meta {
+  margin-bottom: 4px;
+}
+.card-top-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;                     /* gap-2 ≈ 8px，原项目用 gap-2 */
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.card-cat-name {
+  font-weight: 700;             /* font-bold */
+  font-size: 15px;              /* text-[15px]，原项目 */
+  line-height: 1.4;
+}
+.card-top-date {
+  font-size: 13px;              /* text-sm = 14px 微调，与原项目 text-sm 对齐 */
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+/* 移动端窄屏适配 */
+@media (max-width: 480px) {
+  .card-top-row { gap: 10px; }
+  .card-cat-avatar { width: 36px; height: 36px; }
+  .card-cat-avatar-emoji { font-size: 18px; }
+  .card-cat-name { font-size: 14px; }
 }
 .cat-badge {
   display: inline-flex;
