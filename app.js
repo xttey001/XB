@@ -430,11 +430,17 @@ function renderCard(note) {
     // 完全没图标 → 📝 兜底
     avatarInner = `<span class="card-cat-avatar-emoji">📝</span>`;
   }
-  const avatarHtml = `<div class="card-cat-avatar" style="background-color:${avatarBg}">${avatarInner}</div>`;
+  // 分类点击保护：有 categoryId 才加可点击功能
+  const catClickable = note.categoryId ? true : false;
+  const catClickAttrs = catClickable
+    ? ` data-category-id="${note.categoryId}" onclick="event.stopPropagation();filterByCategory(this.dataset.categoryId)"`
+    : '';
+
+  const avatarHtml = `<div class="card-cat-avatar${catClickable ? ' clickable-cat' : ''}" style="background-color:${avatarBg}"${catClickAttrs}>${avatarInner}</div>`;
 
   // 分类名（原项目 font-bold text-[15px]）
   const catNameHtml = note.categoryName
-    ? `<span class="card-cat-name" style="color:${note.categoryColor || 'var(--text)'}">${escapeHtml(note.categoryName)}</span>`
+    ? `<span class="card-cat-name${catClickable ? ' clickable-cat' : ''}" style="color:${note.categoryColor || 'var(--text)'}"${catClickAttrs}>${escapeHtml(note.categoryName)}</span>`
     : '';
 
   const dateStr = formatNiceDate(note.createdAt);
@@ -504,10 +510,8 @@ function openDetail(noteId) {
     ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
 
-  // 图片网格
-  const imagesHtml = note.images && note.images.length > 0
-    ? `<div class="card-images">${renderImagesGrid(note.images)}</div>`
-    : '';
+  // 详情页大图单列（对齐原站 Next.js：w-full h-auto aspect-ratio auto）
+  const imagesHtml = renderDetailImages(note.images);
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -588,6 +592,22 @@ function updateViewTitle() {
   }
 }
 
+// ===== 分类过滤（侧边栏点击 和 卡片头像点击 共用）=====
+function filterByCategory(catId) {
+  state.view = 'category';
+  state.currentFilterId = catId;
+  // 自动展开选中分类的父链
+  let cur = state.categories.find(c => c.id === catId);
+  while (cur?.parentId) {
+    state.expandedCats.add(cur.parentId);
+    cur = state.categories.find(c => c.id === cur.parentId);
+  }
+  renderCategories();
+  renderNoteList();
+  // 移动端：选中分类后自动关闭抽屉
+  if (window.innerWidth < 1024) closeSidebar();
+}
+
 // ===== 事件绑定 =====
 function bindEvents() {
   document.querySelectorAll('.view-btn').forEach(btn => {
@@ -614,16 +634,7 @@ function bindEvents() {
     const btn = e.target.closest('.cat-btn');
     if (!btn) return;
     const catId = btn.closest('.cat-node').dataset.cat;
-    state.view = 'category';
-    state.currentFilterId = catId;
-    // 自动展开选中分类的父链（跟原版一致）
-    let cur = state.categories.find(c => c.id === catId);
-    while (cur?.parentId) {
-      state.expandedCats.add(cur.parentId);
-      cur = state.categories.find(c => c.id === cur.parentId);
-    }
-    renderCategories();
-    renderNoteList();
+    filterByCategory(catId);
   });
 
   document.querySelectorAll('.cal-mode-btn').forEach(btn => {
@@ -837,6 +848,20 @@ function renderImagesGrid(images) {
   }
   html += '</div>';
   return html;
+}
+
+// ===== 详情页大图单列（对齐原站 Next.js）=====
+// 原站 Image: w-full h-auto aspect-auto（保持原始比例，不裁切不限高）
+function renderDetailImages(images) {
+  if (!images || images.length === 0) return '';
+  const urls = images.map(resolveUploadPath);
+  const urlsJson = JSON.stringify(urls).replace(/"/g, '&quot;');
+  const items = urls.map((src, i) =>
+    `<img src="${src}" alt="" class="detail-img" loading="lazy"
+      onclick="event.stopPropagation();openLightboxGallery(${urlsJson}, ${i})"
+      onerror="this.style.display='none'">`
+  ).join('');
+  return `<div class="detail-images">${items}</div>`;
 }
 
 // ===== 批量图片 Lightbox =====

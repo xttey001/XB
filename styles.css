@@ -550,6 +550,25 @@ input { font-family: inherit; }
   font-size: 20px;
   line-height: 1;
 }
+/* 分类头像/名称可点击时的视觉反馈（全局类，不依赖父容器） */
+.clickable-cat {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, text-decoration 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.clickable-cat.card-cat-avatar:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45);
+}
+.clickable-cat.card-cat-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+}
+.clickable-cat:active {
+  transform: scale(0.96);
+}
 .card-top-content {
   flex: 1;
   min-width: 0;                 /* 允许 flex 子项收缩 */
@@ -711,6 +730,30 @@ input { font-family: inherit; }
 /* Modal 里的图片网格稍微紧凑一点 */
 .modal-content .card-images { margin-top: 12px; }
 .modal-content .ig-single { max-height: 400px; }
+
+/* 详情页大图单列（对齐原站 Next.js：w-full h-auto aspect-auto） */
+.detail-images {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.detail-img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+  cursor: zoom-in;
+  margin: 0;
+  background: var(--surface-alt);
+}
+.detail-img:active { opacity: 0.75; }
+@media (max-width: 640px) {
+  .detail-images { gap: 10px; }
+  .detail-img { border-radius: 8px; }
+}
 
 /* 底部：标签 + 展开 */
 .card-footer {
