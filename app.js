@@ -71,6 +71,7 @@ async function init() {
 
   renderNoteList();
   bindEvents();
+  initHashRouter();
 }
 
 // ===== 计数 =====
@@ -491,66 +492,185 @@ function toggleCard(id) {
   renderNoteList();
 }
 
-// ===== 详情弹窗 =====
+// ===== 详情页（整页阅读态，对齐原站 Next.js /note/[id]）=====
 function openDetail(noteId) {
   const note = state.notes.find(n => n.id === noteId);
   if (!note) return;
   state.selectedNoteId = noteId;
 
-  let catBadge = '';
-  if (note.categoryName) {
-    const bg = note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5';
-    catBadge = `<span class="cat-badge" style="background:${bg};color:${note.categoryColor || '#1c1917'}">${escapeHtml(note.categoryName)}</span>`;
+  // 保存列表状态，供返回恢复
+  state._prevView = state.view;
+  state._prevFilterId = state.currentFilterId;
+  state._prevSearch = state.searchQuery;
+  state._prevSort = state.sortBy;
+  state._prevOrder = state.orderDir;
+  const listArea = document.querySelector('.list-area');
+  state._prevScrollY = listArea ? listArea.scrollTop : 0;
+
+  // 用 hash 路由，支持深链接和浏览器后退
+  if (location.hash !== `#/note/${noteId}`) {
+    history.pushState({ noteId }, '', `#/note/${noteId}`);
   }
-  let impBadge = '';
-  if (note.importance === 'important') impBadge = `<span class="importance-badge important">🔥 重要</span>`;
-  else if (note.importance === 'veryImportant') impBadge = `<span class="importance-badge veryImportant">💎 极重要</span>`;
+  renderDetailPage(noteId);
+}
+
+// 渲染整页阅读层
+function renderDetailPage(noteId) {
+  const note = state.notes.find(n => n.id === noteId);
+  if (!note) return;
+
+  const catBadge = note.categoryName
+    ? `<span class="cat-badge" style="background:${note.categoryColor ? hexToRgba(note.categoryColor, 0.08) : '#f4f4f5'};color:${note.categoryColor || '#1c1917'}">${escapeHtml(note.categoryName)}</span>`
+    : '';
+  const impBadge = note.importance === 'important' ? `<span class="importance-badge important">🔥 重要</span>`
+    : note.importance === 'veryImportant' ? `<span class="importance-badge veryImportant">💎 极重要</span>` : '';
 
   const tagsHtml = (note.tags || []).length > 0
     ? `<div class="detail-tags">${note.tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
 
-  // 详情页大图单列（对齐原站 Next.js：w-full h-auto aspect-ratio auto）
   const imagesHtml = renderDetailImages(note.images);
 
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <div class="modal-header-left">${catBadge}${impBadge}</div>
-        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+  const container = document.getElementById('detailPage') || createDetailPageContainer();
+
+  container.innerHTML = `
+    <div class="dp-bar">
+      <button class="dp-back" id="dpBackBtn" title="返回 (Esc)">← 返回</button>
+      <div class="dp-actions">
+        <button class="dp-close-mobile" id="dpBackBtn2" title="关闭">✕</button>
       </div>
-      <div class="detail-meta">
-        <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
-        <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
-        ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
-        ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
-      </div>
-      ${tagsHtml}
-      <div class="modal-body card-body">${safeHighlightSearch(fixNoteLinksInHtml(fixImgSrcInHtml(note.content || '')))}</div>
-      ${imagesHtml}
     </div>
+    <main class="dp-main max-w-3xl-wrap">
+      <article class="dp-article">
+        <header class="dp-header">
+          <h1 class="dp-title">${escapeHtml(note.title || note.content?.slice(0, 40) || '笔记')}</h1>
+          <div class="dp-meta">
+            <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
+            <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
+            ${note.isFavorite ? '<span>⭐ 收藏</span>' : ''}
+            ${note.pinnedGlobal ? '<span>📌 置顶</span>' : ''}
+          </div>
+          <div class="dp-badges">${catBadge}${impBadge}</div>
+          ${tagsHtml}
+        </header>
+        <div class="dp-body note-md">${safeHighlightSearch(fixNoteLinksInHtml(fixImgSrcInHtml(note.content || '')))}</div>
+        ${imagesHtml}
+      </article>
+    </main>
   `;
-  document.body.appendChild(overlay);
+  container.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  // 返回按钮
+  const close = () => closeDetailPage(false);
+  document.getElementById('dpBackBtn')?.addEventListener('click', close);
+  document.getElementById('dpBackBtn2')?.addEventListener('click', close);
 
   // ESC 关闭
-  const onKey = e => {
-    if (e.key === 'Escape') {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
-    }
-  };
-  document.addEventListener('keydown', onKey);
+  const onEsc = e => { if (e.key === 'Escape') closeDetailPage(true); };
+  document.addEventListener('keydown', onEsc, { once: true });
 
-  // 图片 lightbox
-  overlay.querySelectorAll('img').forEach(img => {
-    img.addEventListener('click', e => {
+  // 内链点击 → 跳另一篇笔记（同详情页内）
+  container.querySelectorAll('[data-note-id]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
       e.stopPropagation();
-      showLightbox(img.src);
+      const id = el.dataset.noteId;
+      if (id) openDetail(id);
     });
   });
+
+  // 图片 lightbox（整页内的详情图）
+  container.querySelectorAll('.detail-img').forEach(img => {
+    img.addEventListener('click', e => {
+      e.stopPropagation();
+      const urls = (note.images || []).map(resolveUploadPath);
+      const idx = urls.indexOf(img.src);
+      if (urls.length > 1 && idx >= 0) {
+        openLightboxGallery(JSON.stringify(urls).replace(/"/g, '&quot;'), idx);
+      } else {
+        showLightbox(img.src);
+      }
+    });
+  });
+}
+
+function createDetailPageContainer() {
+  const c = document.createElement('div');
+  c.id = 'detailPage';
+  c.className = 'detail-page hidden';
+  document.body.appendChild(c);
+  return c;
+}
+
+function closeDetailPage(silent) {
+  // 1. 永远先隐藏 DOM（同步执行，确保不再遮挡）
+  const c = document.getElementById('detailPage');
+  if (c) c.classList.add('hidden');
+  document.body.style.overflow = '';
+
+  if (!silent) {
+    // 用户主动点返回：清除 hash → 触发 hashchange → applyHash → 又调 closeDetailPage(true)
+    // 本函数这次不再恢复状态，交给 silent=true 的那一次恢复（避免竞态重复渲染）
+    history.replaceState('', '', location.pathname + location.search);
+    return;
+  }
+
+  // 2. silent=true：由 hashchange 触发（浏览器后退/前进/手动清 hash）
+  //    此时浏览器历史已回退，恢复列表状态
+  if (state._prevView) {
+    state.view = state._prevView;
+    state.currentFilterId = state._prevFilterId;
+    state.searchQuery = state._prevSearch;
+    state.sortBy = state._prevSort;
+    state.orderDir = state._prevOrder;
+    renderCategories();
+    renderNoteList();
+    updateViewTitle();
+    requestAnimationFrame(() => {
+      const listArea = document.querySelector('.list-area');
+      if (listArea && state._prevScrollY) listArea.scrollTop = state._prevScrollY;
+    });
+  }
+}
+
+// ===== hash 路由：#/note/<id> 触发深链接 =====
+function initHashRouter() {
+  const applyHash = () => {
+    const h = location.hash;
+    if (h.startsWith('#/note/')) {
+      const id = h.slice(7);
+      if (!state.selectedNoteId || state.selectedNoteId !== id) {
+        // 如果还没加载数据，等数据
+        if (state.notes.length === 0) {
+          const wait = setInterval(() => {
+            if (state.notes.length > 0) { clearInterval(wait); renderDetailPage(id); }
+          }, 100);
+        } else {
+          // 深链接直接进详情，保存默认状态
+          state._prevView = state.view;
+          state._prevFilterId = state.currentFilterId;
+          state._prevSearch = state.searchQuery;
+          state._prevSort = state.sortBy;
+          state._prevOrder = state.orderDir;
+          const listArea = document.querySelector('.list-area');
+          state._prevScrollY = listArea ? listArea.scrollTop : 0;
+          renderDetailPage(id);
+        }
+      }
+    } else {
+      // 无 hash → 关闭详情（如果有）
+      const c = document.getElementById('detailPage');
+      if (c && !c.classList.contains('hidden')) {
+        closeDetailPage(true);
+      }
+    }
+  };
+  window.addEventListener('hashchange', applyHash);
+  // 启动时处理（支持刷新直接进详情）
+  if (location.hash.startsWith('#/note/')) {
+    applyHash();
+  }
 }
 
 function showLightbox(src) {
