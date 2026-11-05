@@ -697,6 +697,39 @@ input { font-family: inherit; }
   padding: 1px 3px;
   border-radius: 3px;
 }
+/* 富文本表格（Tiptap 输出 div.tableWrapper > table；wrapper 负责横向滚动） */
+.card-body .tableWrapper,
+.dp-body .tableWrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0;
+  max-width: 100%;
+}
+.card-body table,
+.dp-body table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.dp-body table { font-size: 15px; }
+.card-body th, .card-body td,
+.dp-body th, .dp-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 72px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.card-body th,
+.dp-body th {
+  background: var(--surface-alt);
+  font-weight: 600;
+}
+
 /* 图片网格（Twitter 风格） */
 .card-images { margin-top: 10px; }
 .img-grid { display: flex; flex-direction: column; gap: 4px; border-radius: 10px; overflow: hidden; cursor: zoom-in; }

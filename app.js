@@ -55,14 +55,18 @@ async function init() {
   renderCalendar();
 
   // 🔥 Fuse.js 索引在 init 后立即构建一次（缓存复用，不在 filterNotes 里懒构建）
-  window._fuseIndex = new Fuse(state.notes.map(n => ({
-    id: n.id,
-    title: (n.title || '').trim(),
-    summary: (n.summary || '').trim(),
-    content: stripHtml(n.content || '').substring(0, 3000),
-    tags: (n.tags || []).join(' '),
-    category: n.categoryName || ''
-  })), {
+  window._fuseIndex = new Fuse(state.notes.map(n => {
+    const text = htmlToPlainText(n.content || '');
+    return {
+      id: n.id,
+      // notes.json 无 title 字段（DB 也没有该列），标题统一由正文首行推导
+      title: deriveTitleFromText(text) || (n.title || '').trim(),
+      summary: (n.summary || '').trim(),
+      content: text.substring(0, 3000),
+      tags: (n.tags || []).join(' '),
+      category: n.categoryName || ''
+    };
+  }), {
     keys: ['title', 'summary', 'content', 'tags', 'category'],
     threshold: 0.4,
     ignoreLocation: true,
@@ -543,7 +547,7 @@ function renderDetailPage(noteId) {
     <main class="dp-main max-w-3xl-wrap">
       <article class="dp-article">
         <header class="dp-header">
-          <h1 class="dp-title">${escapeHtml(note.title || note.content?.slice(0, 40) || '笔记')}</h1>
+          <h1 class="dp-title">${escapeHtml(deriveTitle(note))}</h1>
           <div class="dp-meta">
             <span>🕐 创建 ${formatNiceDate(note.createdAt)}</span>
             <span>🔄 更新 ${formatNiceDate(note.updatedAt)}</span>
@@ -1148,6 +1152,31 @@ function stripHtml(html) {
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || '';
+}
+
+// 富文本 → 纯文本：块级标签补换行，DOM 解析自动反转义 &nbsp; 等实体
+function htmlToPlainText(html) {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('p,div,li,blockquote,br,h1,h2,h3,h4,h5,h6,ul,ol,table,tr,section,article')
+    .forEach(el => el.appendChild(document.createTextNode('\n')));
+  return (div.textContent || '').replace(/\u00a0/g, ' ');
+}
+
+// 取首个含文字/数字的行（跳过纯 emoji 与空行），截断到 max 字
+function deriveTitleFromText(text, max = 80) {
+  const lines = (text || '').split(/\r?\n/);
+  const first = lines.map(s => s.trim()).find(s => /[\p{L}\p{N}]/u.test(s)) || '';
+  if (!first) return '';
+  return first.length > max ? first.slice(0, max) + '…' : first;
+}
+
+// 笔记标题：优先真实 title 字段（剥标签），否则从正文首行推导
+function deriveTitle(note) {
+  const raw = (note.title || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  if (raw) return raw.length > 80 ? raw.slice(0, 80) + '…' : raw;
+  return deriveTitleFromText(htmlToPlainText(note.content || '')) || '笔记';
 }
 
 function formatNiceDate(iso) {
