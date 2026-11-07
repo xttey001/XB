@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1793898571974').then(r => r.json()),
-      fetch('data/categories.json?v=1793898571974').then(r => r.json()),
-      fetch('data/areas.json?v=1793898571974').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1793898571974').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1794017325484').then(r => r.json()),
+      fetch('data/categories.json?v=1794017325484').then(r => r.json()),
+      fetch('data/areas.json?v=1794017325484').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1794017325484').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;
@@ -381,6 +381,7 @@ function renderNoteList() {
     empty.classList.add('hidden');
 
     cards.innerHTML = notes.map(n => renderCard(n)).join('');
+    renderMathIn(cards);
 
     // 绑定卡片点击 → 打开详情
     cards.querySelectorAll('.note-card').forEach(el => {
@@ -563,6 +564,7 @@ function renderDetailPage(noteId) {
     </main>
   `;
   container.classList.remove('hidden');
+  renderMathIn(container);
   document.body.style.overflow = 'hidden';
 
   // 返回按钮
@@ -1162,6 +1164,25 @@ function htmlToPlainText(html) {
   div.querySelectorAll('p,div,li,blockquote,br,h1,h2,h3,h4,h5,h6,ul,ol,table,tr,section,article')
     .forEach(el => el.appendChild(document.createTextNode('\n')));
   return (div.textContent || '').replace(/\u00a0/g, ' ');
+}
+
+// ===== LaTeX 公式：数据里只存 data-latex，用本地 vendor 的 KaTeX 渲染 =====
+function renderMathIn(root) {
+  if (!root || typeof katex === 'undefined') return;
+  root.querySelectorAll('[data-type="inline-math"], [data-type="block-math"]').forEach(el => {
+    const latex = el.getAttribute('data-latex') || '';
+    if (!latex || el.dataset.mathRendered === '1') return;
+    try {
+      katex.render(latex, el, {
+        throwOnError: false,
+        strict: 'ignore',
+        displayMode: el.getAttribute('data-type') === 'block-math',
+      });
+      el.dataset.mathRendered = '1';
+    } catch (e) {
+      el.textContent = latex;
+    }
+  });
 }
 
 // 取首个含文字/数字的行（跳过纯 emoji 与空行），截断到 max 字

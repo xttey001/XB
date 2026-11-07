@@ -730,6 +730,26 @@ input { font-family: inherit; }
   font-weight: 600;
 }
 
+/* LaTeX 公式（KaTeX 本地 vendor，颜色继承正文，暗色主题自动可读） */
+.card-body [data-type="block-math"],
+.dp-body [data-type="block-math"] {
+  display: block;
+  margin: 10px 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  text-align: center;
+}
+.card-body [data-type="inline-math"],
+.dp-body [data-type="inline-math"] {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+.katex { font-size: 1.1em; color: inherit; }
+.katex-display { margin: 0; padding: 2px 0; }
+
 /* 图片网格（Twitter 风格） */
 .card-images { margin-top: 10px; }
 .img-grid { display: flex; flex-direction: column; gap: 4px; border-radius: 10px; overflow: hidden; cursor: zoom-in; }
