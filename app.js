@@ -33,10 +33,10 @@ let state = {
 async function init() {
   try {
     const [notes, categories, areas, dailyStats] = await Promise.all([
-      fetch('data/notes.json?v=1795029100482').then(r => r.json()),
-      fetch('data/categories.json?v=1795029100482').then(r => r.json()),
-      fetch('data/areas.json?v=1795029100482').then(r => r.json()),
-      fetch('data/daily-stats.json?v=1795029100482').then(r => r.json()).catch(() => ({})),
+      fetch('data/notes.json?v=1795504606129').then(r => r.json()),
+      fetch('data/categories.json?v=1795504606129').then(r => r.json()),
+      fetch('data/areas.json?v=1795504606129').then(r => r.json()),
+      fetch('data/daily-stats.json?v=1795504606129').then(r => r.json()).catch(() => ({})),
     ]);
     state.notes = notes;
     state.categories = categories;

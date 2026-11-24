@@ -670,6 +670,21 @@ input { font-family: inherit; }
   border-radius: 8px;
   margin: 8px 0;
 }
+/* 内嵌画布 / 思维导图：静态站只读展示预览图 */
+.canvas-embed {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-alt);
+  text-align: center;
+}
+.canvas-embed img { max-height: 420px; margin: 0 auto; }
+.canvas-embed-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
 .card-body ul, .card-body ol { padding-left: 20px; margin: 6px 0; }
 .card-body li { margin-bottom: 2px; }
 .card-body code {
